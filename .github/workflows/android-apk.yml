@@ -1,0 +1,143 @@
+# 构建并签名安卓 APK（壳），产物发到 GitHub Release。
+#
+# 触发：打 v* tag 或手动运行。
+# 日常改网页**不需要**跑这个 —— 站点内容走 OTA 热更新（见 README §4）。
+# 只有原生层变化（加/换插件、改权限、改包名/图标、升级 Capacitor 或 SDK）才需要重打。
+#
+# 需要仓库 Secrets（Settings → Secrets and variables → Actions）：
+#   CK_KEYSTORE_B64        keystore 的 base64
+#   CK_KEYSTORE_PASSWORD   storePassword
+#   CK_KEY_PASSWORD        keyPassword（PKCS12 通常与 storePassword 相同）
+#   CK_KEY_ALIAS           可选，默认 Ckarefulon
+# 没配也能跑，但产物是 debug 签名，仅测试用。
+#
+# 注意：Actions 的**仓库级** Secret 是安全的（工作流可用、不可读、不进 fork）；
+# 但 Codespaces 的**仓库级** Secret 对任何能开 Codespace 的人都可见 ——
+# 本仓库是公开仓库，所以 Codespaces 那边必须用**个人** Secret，见
+# docs/Codespaces云端构建.md。
+
+name: Build Android APK
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      versionName:
+        description: '版本号（留空 = app.config.json 里的值），例如 1.1.0'
+        required: false
+        default: ''
+      versionCode:
+        description: 'versionCode 整数（留空 = 用 app.config.json 里的值）'
+        required: false
+        default: ''
+      publishRelease:
+        description: '是否发布到 GitHub Release'
+        type: boolean
+        default: true
+
+permissions:
+  contents: write
+
+concurrency:
+  group: apk-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 检出仓库
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - name: Android SDK
+        uses: android-actions/setup-android@v3
+
+      # 与 android/variables.gradle 对齐；显式装，避免依赖 Gradle 的自动补装
+      - name: 安装 Android SDK 组件
+        run: sdkmanager --install "platform-tools" "platforms;android-36" "build-tools;36.0.0"
+
+      # e2e 闸门（真浏览器进首页 + 断网进首页）以前因为找不到浏览器被静默跳过，
+      # 看起来一切正常其实什么都没测。这里显式装一个并交给 CHROME_BIN。
+      - name: 安装 Chrome（供 E2E 闸门使用）
+        id: chrome
+        uses: browser-actions/setup-chrome@v1
+        with:
+          chrome-version: stable
+
+      - name: 安装依赖
+        run: npm ci --no-audit --no-fund
+
+      - name: 恢复签名（Secrets）
+        env:
+          CK_KEYSTORE_B64: ${{ secrets.CK_KEYSTORE_B64 }}
+          CK_KEYSTORE_PASSWORD: ${{ secrets.CK_KEYSTORE_PASSWORD }}
+          CK_KEY_PASSWORD: ${{ secrets.CK_KEY_PASSWORD }}
+          CK_KEY_ALIAS: ${{ secrets.CK_KEY_ALIAS }}
+        run: |
+          mkdir -p keys
+          if [ -n "$CK_KEYSTORE_B64" ]; then
+            printf '%s' "$CK_KEYSTORE_B64" | base64 -d > keys/Ckarefulon.keystore
+            {
+              echo "storeFile=../keys/Ckarefulon.keystore"
+              echo "storePassword=$CK_KEYSTORE_PASSWORD"
+              echo "keyAlias=${CK_KEY_ALIAS:-Ckarefulon}"
+              echo "keyPassword=${CK_KEY_PASSWORD:-$CK_KEYSTORE_PASSWORD}"
+              echo "storeType=PKCS12"
+            } > keys/keystore.properties
+            chmod 600 keys/keystore.properties keys/Ckarefulon.keystore
+            echo "已恢复发布签名"
+          else
+            echo "::warning::未配置 CK_KEYSTORE_B64，release 包将回退 debug 签名（仅测试用）"
+          fi
+
+      - name: 同步壳 + 定制 Android 工程
+        run: npm run android:sync && npm run android:patch
+
+      # npm run apk 内部依次跑 utest → ptest → smoke → e2e → gradle，任一失败即阻断出包
+      - name: 构建 APK（含全部质量闸门）
+        env:
+          CK_VERSION_NAME: ${{ inputs.versionName }}
+          CK_VERSION_CODE: ${{ inputs.versionCode }}
+          CHROME_BIN: ${{ steps.chrome.outputs.chrome-path }}
+        run: npm run apk
+
+      - name: 校验 APK
+        run: npm run verify
+
+      - name: 上传产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: ckarefulon-apk
+          path: |
+            dist/*.apk
+            dist/apk-info.json
+            dist/apk-verify.json
+          if-no-files-found: error
+
+      - name: 发布到 GitHub Release
+        if: github.ref_type == 'tag' || inputs.publishRelease
+        uses: ncipollo/release-action@v1
+        with:
+          tag: ${{ github.ref_type == 'tag' && github.ref_name || format('apk-{0}', github.run_id) }}
+          name: 'Ckarefulon APK ${{ github.ref_name }}'
+          artifacts: 'dist/*.apk'
+          body: |
+            安卓壳安装包（签名：Ckarefulon）。
+            站点内容通过 OTA 自动更新，此 APK 仅在原生层变化时才需要重新安装。
+          allowUpdates: true
+          prerelease: false

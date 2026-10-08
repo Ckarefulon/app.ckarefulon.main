@@ -64,7 +64,8 @@ app-android/                     ← 把本目录放进站点仓库根目录（�
 │   └── bump.mjs                 版本号管理
 ├── android/                     Capacitor 生成的原生工程（已定制，随仓库提交）
 ├── keys/                        签名（已被 .gitignore 忽略，务必自行备份！）
-├── .github/workflows/           CI：Build Android APK / Publish OTA Bundle
+├── .devcontainer/               云端构建：Codespaces / prebuild 配置
+├── .github/workflows/           CI：Build Android APK
 ├── build.sh / build.ps1         本地一键构建（Linux·mac / Windows）
 └── docs/                        详细文档
 ```
@@ -91,12 +92,19 @@ cd Ckarefulon.github.io\app-android
 ./build.sh          # 或 ./build.sh all
 ```
 
-### 3.3 不装任何环境：GitHub Actions
+### 3.3 不装任何环境：云端构建
 
-把本目录提交进站点仓库后：
-- **Actions → Build Android APK → Run workflow**（或打 `v*` tag 自动触发）：自动构建签名 APK 并发到 Release。
-  需要在仓库 Secrets 里配置 `CK_KEYSTORE_B64`（keystore 的 base64）、`CK_KEYSTORE_PASSWORD`、`CK_KEY_PASSWORD`（见 `docs/签名与发布.md`）。没配也能跑，但产物是临时签名，仅测试用。
+两条路线，都不需要本地装 JDK / Android SDK，产物都能直接下载 —— 详见 **`docs/Codespaces云端构建.md`**：
+
+- **GitHub Actions**（`.github/workflows/android-apk.yml`）：**Actions → Build Android APK → Run workflow**（或打 `v*` tag 自动触发），构建签名 APK 并发到 Release，在 Release 附件里直接下载。
+  在仓库 Secrets 里配置 `CK_KEYSTORE_B64`（keystore 的 base64）、`CK_KEYSTORE_PASSWORD`、`CK_KEY_PASSWORD`（见 `docs/签名与发布.md`）。没配也能跑，但产物是临时签名，仅测试用。
+- **Codespaces + prebuild**（`.devcontainer/`）：秒开一个装好 JDK 21 + Android SDK 的云端开发环境，跑 `npm run build` 后在文件树里右键 APK → Download。
+  签名私钥用 **Codespaces 个人密钥**恢复（**不要用仓库级密钥** —— 本仓库是公开仓库，仓库级密钥对任何能开 Codespace 的人可见）。
+
 - **改网页不需要任何工作流**：App 直接从 jsDelivr/Netlify 读取仓库内容，push 即生效。
+
+> ⚠️ 签名密钥当前**已丢失**（本地、git 历史、app-kit 包里都没有）。重建 = 换证书，
+> 装了 128~131 的用户必须卸载重装。动手前先读 `docs/Codespaces云端构建.md` §1。
 
 ### 3.4 安装到手机
 
@@ -155,6 +163,7 @@ adb install -r release/Ckarefulon-latest-release.apk
 
 更多细节见 `docs/`：
 
+- `docs/Codespaces云端构建.md` — 云端出包（Actions / Codespaces + prebuild）、密钥重建与备份
 - `docs/OTA更新机制.md` — 版本规则、清单字段、回滚、多镜像、故障排查
 - `docs/蓝牙BLE.md` — Web Bluetooth 桥接 API 对照、权限、调试
 - `docs/签名与发布.md` — keystore 管理、CI Secrets、Gitee 令牌

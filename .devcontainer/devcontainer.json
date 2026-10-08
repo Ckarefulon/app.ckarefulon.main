@@ -1,0 +1,49 @@
+{
+  "$schema": "https://raw.githubusercontent.com/devcontainers/spec/main/schemas/devContainer.schema.json",
+  "name": "Ckarefulon Android 壳 (Capacitor 8)",
+
+  "build": {
+    "dockerfile": "Dockerfile",
+    "context": "."
+  },
+
+  "features": {
+    "ghcr.io/devcontainers/features/node:1": {
+      "version": "22"
+    }
+  },
+
+  "containerEnv": {
+    "ANDROID_HOME": "/opt/android-sdk",
+    "ANDROID_SDK_ROOT": "/opt/android-sdk"
+  },
+
+  // prebuild 阶段只执行到 updateContentCommand 为止（GitHub 文档明确：生成 prebuild
+  // 快照时不会运行 postCreateCommand），所以这里只做「跟依赖有关、又不碰密钥」的事。
+  "updateContentCommand": "bash .devcontainer/update-content.sh",
+
+  // 只在真正创建 Codespace 时运行 —— 因此这里恢复的签名私钥不会进入任何快照。
+  // 本仓库是公开仓库，任何人都能开 Codespace，密钥进快照等于公开。
+  "postCreateCommand": "bash .devcontainer/post-create.sh",
+
+  // Android Gradle 构建吃内存：2 核容易 OOM 或超时。
+  // 想省 Codespaces 额度可以降到 "cpus": 2（构建会明显变慢）。
+  "hostRequirements": {
+    "cpus": 4,
+    "memory": "8gb",
+    "storage": "32gb"
+  },
+
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "vscjava.vscode-java-pack"
+      ],
+      "settings": {
+        "java.configuration.updateBuildConfiguration": "automatic",
+        "terminal.integrated.defaultProfile.linux": "bash",
+        "files.eol": "\n"
+      }
+    }
+  }
+}

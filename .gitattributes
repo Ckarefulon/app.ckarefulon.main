@@ -1,0 +1,7 @@
+# 换行：容器是 Linux，CRLF 会让 shell 脚本报
+#   bash: ./xxx.sh: /bin/bash^M: bad interpreter
+# 本机 core.autocrlf=true（Windows），没有这几行的话新加的 .sh 会被写成 CRLF 提交。
+# 只钉必须 LF 的那几类，不动其余文件，避免一次性重写整个仓库的行尾。
+*.sh text eol=lf
+gradlew text eol=lf
+Dockerfile text eol=lf
