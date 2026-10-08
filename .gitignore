@@ -1,0 +1,25 @@
+# 依赖 / 构建产物
+node_modules/
+www/
+dist/
+.build/
+.cache/
+*.log
+
+# Android 生成物（源码保留在 android/ 里）
+android/.gradle/
+android/app/build/
+android/build/
+android/capacitor-cordova-android-plugins/build/
+android/local.properties
+android/.idea/
+*.iml
+
+# 签名（！！！不要提交到公开仓库）
+keys/*.keystore
+keys/*.jks
+keys/keystore.properties
+
+# 系统垃圾
+.DS_Store
+Thumbs.db

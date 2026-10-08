@@ -1,0 +1,57 @@
+{
+  "appId": "app.ckarefulon.main",
+  "appName": "Ckarefulon",
+  "webDir": "www",
+  "server": {
+    "androidScheme": "http",
+    "cleartext": true,
+    "allowNavigation": [
+      "ckarefulon.github.io",
+      "gitee.com",
+      "fastly.jsdelivr.net",
+      "ckarefulon.netlify.app"
+    ]
+  },
+  "android": {
+    "allowMixedContent": false,
+    "captureInput": false,
+    "backgroundColor": "#161328"
+  },
+  "plugins": {
+    "SplashScreen": {
+      "launchShowDelay": 200,
+      "launchAutoHide": true,
+      "backgroundColor": "#161328",
+      "showSpinner": false,
+      "androidScaleType": "CENTER_CROP",
+      "splashFullScreen": true,
+      "splashImmersive": true
+    },
+    "StatusBar": {
+      "style": "DARK",
+      "backgroundColor": "#161328"
+    },
+    "CapacitorUpdater": {
+      "autoUpdate": false,
+      "statsUrl": "",
+      "autoDeleteFailed": true,
+      "autoDeletePrevious": true,
+      "resetWhenUpdate": true,
+      "directUpdate": false,
+      "appReadyTimeout": 15000,
+      "responseTimeout": 30,
+      "periodCheckDelay": 0,
+      "keepUrlPathAfterReload": true,
+      "disableJSLogging": false,
+      "shakeMenu": false
+    },
+    "BluetoothLe": {
+      "displayStrings": {
+        "scanning": "正在搜索设备…",
+        "cancel": "取消",
+        "availableDevices": "可用设备",
+        "noDeviceFound": "未发现设备"
+      }
+    }
+  }
+}

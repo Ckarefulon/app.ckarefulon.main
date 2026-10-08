@@ -1,0 +1,165 @@
+{
+  "appId": "app.ckarefulon.main",
+  "appName": "Ckarefulon",
+  "versionName": "1.0.0",
+  "versionCode": 131,
+  "signer": {
+    "name": "Ckarefulon",
+    "keyAlias": "Ckarefulon",
+    "keystore": "keys/Ckarefulon.keystore",
+    "keystoreProperties": "keys/keystore.properties",
+    "dname": "CN=Ckarefulon, OU=Ckarefulon, O=Ckarefulon, L=Internet, ST=Internet, C=CN",
+    "validityDays": 10950,
+    "storeType": "PKCS12"
+  },
+  "site": {
+    "repo": "https://gitee.com/Ckarefulon/Ckarefulon.github.io.git",
+    "repoFallback": "https://github.com/Ckarefulon/Ckarefulon.github.io.git",
+    "branch": "main",
+    "baseUrl": "https://ckarefulon.github.io",
+    "localPath": "../site-src",
+    "contentVersionFile": "Cube/Formula/Changelog.md"
+  },
+  "bundle": {
+    "comment": "OTA 资源包内容规则：只排除点号开头的文件/目录（.git .github .http .htaccess .make-index.* .本地服务.lnk ui/.preflight supabase/.temp），其余全部打包。exclude 优先级高于 include。",
+    "include": [
+      "**/*"
+    ],
+    "exclude": [
+      "**/.*",
+      "**/.*/**",
+      ".*/**",
+      "app-ota/**",
+      "app-android/**",
+      "**/node_modules/**",
+      "**/*.lnk",
+      "**/.DS_Store",
+      "**/Thumbs.db"
+    ],
+    "vendor": {
+      "comment": "离线化：把页面里引用的 CDN 脚本下载到包内 ckapp/vendor 并改写引用，断网也能跑。直连失败时会自动改用国内镜像（jsDelivr/unpkg 走 jsd.onmicrosoft.cn，规则在 scripts/vendor-sync.mjs 的 MIRROR_HOSTS）；没有通用镜像的源（如 cdnjs）在这里写 mirror 字段兜底。",
+      "enabled": true,
+      "dir": "ckapp/vendor",
+      "assets": [
+        {
+          "url": "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js",
+          "file": "supabase-js@2.umd.min.js"
+        },
+        {
+          "url": "https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js",
+          "file": "jszip@3.10.1.min.js",
+          "mirror": "https://jsd.onmicrosoft.cn/npm/jszip@3.10.1/dist/jszip.min.js"
+        },
+        {
+          "url": "https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4.3.1/dist/index.global.js",
+          "file": "tailwind-browser@4.3.1.js"
+        },
+        {
+          "url": "https://unpkg.com/lucide@1.8.0/dist/umd/lucide.min.js",
+          "file": "lucide@1.8.0.umd.min.js"
+        },
+        {
+          "url": "https://cdn.jsdelivr.net/npm/ts-fsrs/+esm",
+          "file": "ts-fsrs.esm.js"
+        }
+      ]
+    },
+    "inject": {
+      "comment": "给每个 HTML 注入壳运行时（BLE 原生桥 + OTA 检查）",
+      "script": "/ckapp/ck-app.js",
+      "style": "/ckapp/ck-app.css"
+    }
+  },
+  "shell": {
+    "comment": "APK 里只装这个壳：启动页负责首次下载 / 激活 OTA 资源包",
+    "dir": "shell",
+    "webDir": "www",
+    "entry": "index.html"
+  },
+  "ota": {
+    "comment": "更新源用 Gitee raw（无需开通 Gitee Pages，仓库公开即可）。mirrors 按顺序尝试，第一个成功的会被记住并优先使用。",
+    "enabled": true,
+    "channel": "production",
+    "publishDir": "app-ota",
+    "manifestFile": "latest.json",
+    "assetNamePattern": "www-{version}.zip",
+    "mirrors": [
+      {
+        "name": "Gitee",
+        "base": "https://gitee.com/Ckarefulon/Ckarefulon.github.io/raw/main",
+        "enabled": true,
+        "cors": false,
+        "fast": 0,
+        "fresh": 0
+      },
+      {
+        "name": "jsDelivr",
+        "base": "https://fastly.jsdelivr.net/gh/Ckarefulon/Ckarefulon.github.io@main",
+        "enabled": true,
+        "cors": true,
+        "fast": 1,
+        "fresh": 1,
+        "html": false,
+        "comment2": "jsDelivr 对一切 .html 都 301 给 raw.githubusercontent.com（国内不通）：HTML 请求跳过它，省一整轮必失败的超时"
+      },
+      {
+        "name": "Netlify",
+        "base": "https://ckarefulon.netlify.app",
+        "enabled": true,
+        "cors": false,
+        "fast": 2,
+        "fresh": 2
+      },
+      {
+        "name": "GitHub Pages",
+        "base": "https://ckarefulon.github.io",
+        "enabled": true,
+        "cors": true,
+        "fast": 3,
+        "fresh": 3,
+        "comment": "唯一带 ACAO 头且给真 text/html 的源。jsDelivr 对一切 .html 都 301 到 raw.githubusercontent.com（国内不通），浏览器上下文里站点 HTML 只有这里能拿到；原生通道不受 CORS 限制，仍按 fast 顺序先用 Gitee。"
+      }
+    ],
+    "originTimeoutMs": 8000,
+    "onlineFallbacks": [
+      "https://ckarefulon.netlify.app"
+    ],
+    "checkOnLaunch": true,
+    "checkOnResume": true,
+    "checkIntervalMinutes": 60,
+    "applyMode": "next",
+    "downloadTimeoutMs": 180000,
+    "minNativeVersion": "1.0.0",
+    "apkUrls": [
+      {
+        "name": "GitHub Releases",
+        "url": "https://github.com/Ckarefulon/Ckarefulon.github.io/releases/latest"
+      }
+    ],
+    "apkReleasesUrl": "https://github.com/Ckarefulon/Ckarefulon.github.io/releases/latest",
+    "keepReleases": 3
+  },
+  "android": {
+    "minSdkVersion": 24,
+    "targetSdkVersion": 36,
+    "compileSdkVersion": 36,
+    "bluetooth": {
+      "enabled": true,
+      "neverForLocation": true,
+      "scanMode": 2,
+      "requestEnableDialog": true
+    },
+    "backgroundColor": "#161328",
+    "accentColor": "#24F0EA",
+    "webScheme": "http"
+  },
+  "publish": {
+    "comment": "npm run ota:publish 把产物复制到站点仓库的 app-ota/ 并推送。remotes 为 git remote 名称，留空表示只复制不推送。",
+    "siteRepoPath": "../site-src",
+    "remotes": [
+      "gitee"
+    ],
+    "branch": "main",
+    "commitMessage": "chore(ota): 发布资源包 {version}"
+  }
+}

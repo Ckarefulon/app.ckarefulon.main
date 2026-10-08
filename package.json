@@ -1,0 +1,51 @@
+{
+  "name": "ckarefulon-android-shell",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Ckarefulon 安卓壳工程：Capacitor 8 + BLE 原生桥 + 自托管 OTA 热更新（APK 内不含站点内容）",
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "config": "node scripts/write-config.mjs",
+    "bundle:js": "node scripts/build-web.mjs",
+    "vendor": "node scripts/vendor-sync.mjs",
+    "shell": "node scripts/sync-shell.mjs",
+    "icons": "node scripts/make-assets.mjs",
+    "keystore": "node scripts/make-keystore.mjs",
+    "android:sync": "npm run config && npm run bundle:js && npm run shell && cap sync android",
+    "android:patch": "node scripts/patch-android.mjs",
+    "apk": "node scripts/build-apk.mjs",
+    "apk:debug": "node scripts/build-apk.mjs --debug",
+    "build": "npm run android:sync && npm run android:patch && npm run apk",
+    "kit": "node scripts/make-app-kit.mjs",
+    "ota:bundle": "node scripts/make-bundle.mjs",
+    "ota:publish": "node scripts/publish-ota.mjs",
+    "verify": "node scripts/verify-apk.mjs",
+    "bump": "node scripts/bump.mjs",
+    "clean": "node -e \"import('node:fs').then(fs=>['www','dist/ota','android/app/build'].forEach(p=>fs.rmSync(p,{recursive:true,force:true})))\"",
+    "smoke": "node scripts/smoke.mjs",
+    "utest": "node scripts/utest.mjs",
+    "ptest": "node scripts/ptest.mjs"
+  },
+  "dependencies": {
+    "@capacitor-community/bluetooth-le": "^8.3.0",
+    "@capacitor/android": "^8.5.2",
+    "@capacitor/app": "^8.1.1",
+    "@capacitor/core": "^8.5.2",
+    "@capacitor/network": "^8.0.1",
+    "@capacitor/splash-screen": "^8.0.2",
+    "@capacitor/status-bar": "^8.0.3",
+    "@capgo/capacitor-updater": "^8.51.18"
+  },
+  "devDependencies": {
+    "@capacitor/assets": "^3.0.5",
+    "@capacitor/cli": "^8.5.2",
+    "esbuild": "^0.28.2",
+    "fflate": "^0.8.3",
+    "jsdom": "^30.1.0",
+    "picomatch": "^4.0.7",
+    "puppeteer-core": "^25.11.0"
+  }
+}

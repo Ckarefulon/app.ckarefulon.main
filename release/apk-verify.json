@@ -1,0 +1,114 @@
+{
+  "apk": "Ckarefulon-1.0.0-131-release.apk",
+  "bytes": 5170348,
+  "sha256": "a091d9ca0b32932a04ee17f6fd5c65104b18f6db999bd9348f837f9b3fb22f7b",
+  "signer": {
+    "verified": true,
+    "schemes": [
+      "v2",
+      "v3"
+    ],
+    "cn": "CN=Ckarefulon, OU=Ckarefulon, O=Ckarefulon, L=Internet, ST=Internet, C=CN",
+    "sha256": "dfda920ed20b06ef1d00b32c7c1f9e6fbccac1eb32ddad3c0d5220e7ac10c59e"
+  },
+  "info": {
+    "package": "app.ckarefulon.main",
+    "versionCode": "131",
+    "versionName": "1.0.0",
+    "minSdk": "24",
+    "targetSdk": "36",
+    "label": "Ckarefulon",
+    "permissions": [
+      "android.permission.INTERNET",
+      "android.permission.ACCESS_NETWORK_STATE",
+      "android.permission.BLUETOOTH_SCAN",
+      "android.permission.BLUETOOTH_CONNECT",
+      "android.permission.BLUETOOTH",
+      "android.permission.BLUETOOTH_ADMIN",
+      "android.permission.ACCESS_FINE_LOCATION",
+      "android.permission.ACCESS_COARSE_LOCATION",
+      "android.permission.WAKE_LOCK",
+      "android.permission.RECEIVE_BOOT_COMPLETED",
+      "android.permission.FOREGROUND_SERVICE",
+      "app.ckarefulon.main.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION"
+    ],
+    "features": [
+      "android.hardware.bluetooth",
+      "android.hardware.bluetooth_le",
+      "android.hardware.faketouch",
+      "android.hardware.location"
+    ],
+    "launchable": "app.ckarefulon.main.MainActivity"
+  },
+  "checks": [
+    {
+      "name": "签名有效",
+      "ok": true
+    },
+    {
+      "name": "签名者为 Ckarefulon",
+      "ok": true
+    },
+    {
+      "name": "包名 = app.ckarefulon.main",
+      "ok": true
+    },
+    {
+      "name": "versionName = 1.0.0",
+      "ok": true
+    },
+    {
+      "name": "versionCode = 131",
+      "ok": true
+    },
+    {
+      "name": "应用名 = Ckarefulon",
+      "ok": true
+    },
+    {
+      "name": "包含蓝牙权限 BLUETOOTH_SCAN",
+      "ok": true
+    },
+    {
+      "name": "包含蓝牙权限 BLUETOOTH_CONNECT",
+      "ok": true
+    },
+    {
+      "name": "声明 BLE 硬件特性（非必需）",
+      "ok": true
+    },
+    {
+      "name": "包含 INTERNET 权限",
+      "ok": true
+    },
+    {
+      "name": "壳内含 index.html",
+      "ok": true
+    },
+    {
+      "name": "壳内含运行时 ck-app.js",
+      "ok": true
+    },
+    {
+      "name": "APK 未打包站点内容（壳 < 2MB）",
+      "ok": true
+    },
+    {
+      "name": "壳配置与当前构建一致（设置改动真正进包）",
+      "ok": true
+    },
+    {
+      "name": "壳网页代码与当前构建一致",
+      "ok": true
+    }
+  ],
+  "shell": {
+    "files": 9,
+    "bytes": 230573
+  },
+  "freshness": {
+    "config": true,
+    "staleFiles": []
+  },
+  "verifiedAt": "2026-09-27T04:50:50.620Z"
+}

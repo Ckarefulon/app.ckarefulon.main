@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="dark">
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+	<meta name="theme-color" content="#161328">
+	<title>Ckarefulon</title>
+	<link rel="stylesheet" href="/ckapp/ck-app.css">
+	<!-- 壳运行时：由 scripts/build-web.mjs 生成，负责首次下载 / 激活 OTA 资源包 -->
+	<script src="/ckapp/ck-app.js"></script>
+	<style>
+		html, body { margin: 0; padding: 0; height: 100%; background: #161328; }
+	</style>
+</head>
+<body>
+	<div class="ck-root"></div>
+
+	<div class="ck-boot">
+		<div class="ck-boot-logo">
+			<!-- 站点 favicon.svg 内联，避免壳依赖任何外部文件 -->
+			<svg xmlns="http://www.w3.org/2000/svg" width="120" height="120" viewBox="0 0 120 120">
+				<defs>
+					<path id="ckIconShape" d="M 24.2462872 34.0741 L 95.7537128 34.0741 A 7.77777778 7.77777778 0 0 1 102.296212 46.0577702 L 66.542495 101.674663 A 7.77777778 7.77777778 0 0 1 53.457505 101.674663 L 17.703788 46.0577702 A 7.77777778 7.77777778 0 0 1 24.2462872 34.0741 Z"/>
+					<clipPath id="ckIconClip"><use href="#ckIconShape"/></clipPath>
+					<radialGradient id="ckCyanFade" gradientUnits="userSpaceOnUse" cx="22" cy="38" r="68" fx="22" fy="38">
+						<stop offset="0%" stop-color="#24F0EA" stop-opacity="1"/>
+						<stop offset="18%" stop-color="#24F0EA" stop-opacity="1"/>
+						<stop offset="35%" stop-color="#24F0EA" stop-opacity="0.898"/>
+						<stop offset="52%" stop-color="#24F0EA" stop-opacity="0.632"/>
+						<stop offset="70%" stop-color="#24F0EA" stop-opacity="0.296"/>
+						<stop offset="88%" stop-color="#24F0EA" stop-opacity="0.052"/>
+						<stop offset="100%" stop-color="#24F0EA" stop-opacity="0"/>
+					</radialGradient>
+				</defs>
+				<use href="#ckIconShape" fill="#5d4ea8"/>
+				<g clip-path="url(#ckIconClip)"><circle cx="22" cy="38" r="74" fill="url(#ckCyanFade)"/></g>
+			</svg>
+		</div>
+
+		<h1 class="ck-boot-title">Ckarefulon</h1>
+		<p class="ck-boot-stage">正在启动…</p>
+
+		<div class="ck-boot-prog ck-prog ck-indet"><i></i></div>
+
+		<div class="ck-boot-err"></div>
+		<div class="ck-boot-acts" style="display:none"></div>
+
+		<p class="ck-boot-ver" id="ckBootVer">壳 v—</p>
+	</div>
+
+	<script>
+		// 看门狗：若 6 秒内壳运行时仍未启动，给出可读提示（便于定位，而不是白屏/错误页）
+		window.__ckWatch = setTimeout(function () {
+			if (window.__ckBootStarted) return;
+			var s = document.querySelector('.ck-boot-stage');
+			if (s) s.textContent = '运行时未加载（code: RUNTIME_NOT_STARTED）：请截图此页反馈';
+			var e = document.querySelector('.ck-boot-err');
+			if (e) { e.classList.add('ck-in'); e.textContent = 'document.readyState=' + document.readyState + '；sw=' + ('serviceWorker' in navigator) + '；onLine=' + navigator.onLine; }
+		}, 6000);
+	</script>
+
+	<script>
+		// 版本信息由构建脚本写入 /ckapp/ck-version.json，这里只做展示
+		(function () {
+			var node = document.getElementById('ckBootVer');
+			fetch('/ckapp/ck-version.json', { cache: 'no-store' })
+				.then(function (r) { return r.json(); })
+				.then(function (m) {
+					node.textContent = '壳 v' + (m.version || '?') +
+						' · 原生 ' + (m.nativeVersion || '?') + '(' + (m.nativeBuild || '?') + ')' +
+						'\n构建 ' + (m.builtAt || '?') + (m.commit ? ' · ' + m.commit : '');
+				})
+				.catch(function () { node.textContent = '壳 v?'; });
+		})();
+	</script>
+</body>
+</html>
