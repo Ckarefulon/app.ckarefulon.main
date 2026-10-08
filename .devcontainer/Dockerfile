@@ -25,7 +25,22 @@ ENV ANDROID_HOME=/opt/android-sdk \
     ANDROID_SDK_ROOT=/opt/android-sdk \
     PATH=/opt/android-sdk/cmdline-tools/latest/bin:/opt/android-sdk/platform-tools:${PATH}
 
+# 先删掉基础镜像里烘着的 dl.yarnpkg.com 源，再 apt-get update。
+#
+# 原因：镜像里带的是「构建镜像当时」的 Yarn 签名公钥，Yarn 之后轮换了密钥，
+# 于是 apt-get update 报 NO_PUBKEY 62D54FD4003F6525 并以 100 退出，
+# 在 set -e 下直接中断整个构建（2026-10 实际踩到，Codespace 创建失败）。
+#
+# 不选「刷新密钥」是因为有鸡生蛋问题：装 gnupg 得先 apt-get update，而它正是坏的那一步。
+# 本项目用 npm，不需要从 apt 装 yarn；yarn 由 node feature 经 corepack/npm 提供，
+# 且它只在 yarn.list 仍存在时才会重配该源（devcontainers/features 的 node/install.sh），
+# 所以删掉后不会被加回来。
+#
+# 注意：注释必须写在 RUN 之外 —— Dockerfile 的多行 RUN 续行里不支持 # 注释。
 RUN set -eux; \
+    rm -f /etc/apt/sources.list.d/yarn.list; \
+    sed -i '/dl\.yarnpkg\.com/d' /etc/apt/sources.list 2>/dev/null || true; \
+    grep -rlZ 'dl\.yarnpkg\.com' /etc/apt/sources.list.d 2>/dev/null | xargs -0 -r rm -f; \
     apt-get update; \
     apt-get install -y --no-install-recommends curl unzip ca-certificates; \
     rm -rf /var/lib/apt/lists/*; \
@@ -38,7 +53,7 @@ RUN set -eux; \
     unzip -q "${tools_zip}" -d /tmp/android-cmdline-tools; \
     mv /tmp/android-cmdline-tools/cmdline-tools "${ANDROID_SDK_ROOT}/cmdline-tools/latest"; \
     rm -rf /tmp/android-cmdline-tools "${tools_zip}"; \
-    yes | sdkmanager --licenses > /dev/null; \
+    yes | sdkmanager --licenses > /dev/null 2>&1 || true; \
     sdkmanager --install "platform-tools" "platforms;${ANDROID_PLATFORM}" "build-tools;${ANDROID_BUILD_TOOLS}"; \
     rm -rf "${ANDROID_SDK_ROOT}/.temp"; \
     chmod -R a+rX "${ANDROID_SDK_ROOT}"; \

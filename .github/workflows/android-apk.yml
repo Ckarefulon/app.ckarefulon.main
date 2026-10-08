@@ -78,6 +78,7 @@ jobs:
         uses: browser-actions/setup-chrome@v1
         with:
           chrome-version: stable
+          install-dependencies: true
 
       - name: 安装依赖
         run: npm ci --no-audit --no-fund

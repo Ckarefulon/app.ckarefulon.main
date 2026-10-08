@@ -187,7 +187,8 @@ dist/apk-info.json / dist/apk-verify.json
 | `Failed to install the following Android SDK packages` | 协议未接受。镜像里已 `sdkmanager --licenses`；手动补装：`sdkmanager --install "platforms;android-36" "build-tools;36.0.0"` |
 | `Gradle build daemon disappeared unexpectedly` | 内存不足。`hostRequirements` 已要求 4 核 / 8GB；仍失败就 `./gradlew --stop` 后重试。脚本本身也会按总内存自动切低内存串行模式 |
 | 每次 prebuild 都重装依赖 | `node_modules/.ck-lock-sha256` 是判断依据；若 `node_modules` 被清了（不在快照里）就会重装，属预期 |
-| e2e 闸门被跳过（日志出现「未检测到 chromium/chrome」） | 本地没装浏览器。Codespace 里可 `sudo apt-get install -y chromium` 后设 `CHROME_BIN`；CI 里工作流已显式安装 |
+| 构建镜像时 `apt-get update` 退出码 100 / `NO_PUBKEY 62D54FD4003F6525` | 基础镜像里烘着 `dl.yarnpkg.com` 的 apt 源和「当时」的 Yarn 签名公钥，Yarn 后来轮换了密钥 → 该源变成未签名 → `set -e` 中断构建。**2026-10 实际踩到**。`Dockerfile` 已在 `apt-get update` 前定向删除这个源（见那里的注释）。注意：别用 `apt-get install chromium` 绕，那会踩同一个坑 |
+| e2e 闸门被跳过（日志出现「未检测到 chromium/chrome」） | 本地没装浏览器。Codespace 里可 `npx puppeteer browsers install chrome` 后设 `CHROME_BIN`（**别用 apt 装**，理由同上）；CI 里工作流已显式安装 |
 | 老用户装不上新 APK | **证书换了**（见 §1）。确认指纹是否还是 `dfda920e…`；不同则只能卸载重装 |
 | prebuild 里出现了密钥 | 不可能，除非把恢复逻辑写进了 `updateContentCommand` 或 Dockerfile。密钥只允许出现在 `post-create.sh` |
 
