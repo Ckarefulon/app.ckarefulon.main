@@ -102,10 +102,24 @@ base64 -w0 keys/Ckarefulon.keystore > keys-b64.txt    # macOS 用 base64 -i ... 
 ```
 .devcontainer/
 ├── Dockerfile            JDK 21 + Android SDK（platform-tools / android-36 / build-tools 36.0.0）
-├── devcontainer.json     镜像 + Node 22 feature + 生命周期命令 + 机器规格
+├── devcontainer.json     镜像 + Node 22 / sshd 两个 feature + 生命周期命令 + 机器规格
 ├── update-content.sh     prebuild 阶段跑：npm ci + 预热 Gradle 发行版（幂等）
 └── post-create.sh        创建 Codespace 时跑：恢复签名私钥（绝不进 prebuild 快照）
 ```
+
+**为什么 `features` 里除了 Node 还有一条 `sshd`**：本仓库用自定义 `Dockerfile`
+（`FROM mcr.microsoft.com/devcontainers/java:1-21-bookworm`），而基础镜像里**没有**
+openssh-server。GitHub 文档的口径是「默认 dev container 镜像自带并自动启动 SSH 服务；
+不是基于默认镜像创建的 Codespace 要在 `features` 里自己加
+`ghcr.io/devcontainers/features/sshd:1`」。
+
+这一条不是可选项：`gh codespace ssh`（以及任何把它当数据通道的客户端，比如 DSH 的
+Codespace 工作区插件）是在容器**内部**拉起一个 SSH 服务、再经 dev tunnel 转发过来的，
+容器里没有 sshd 就完全走不通 —— 表现是控制面（开关机、列 Codespace、看状态）一切正常，
+但读写文件、跑命令一条都失败，`gh` 只会给一句
+`error getting ssh server details: failed to start SSH server:`。
+
+**改完必须删除并重建 Codespace**：feature 是在创建时烘进容器的，不会补装到已有实例上。
 
 **关键点（决定了密钥放在哪一步）**：GitHub 文档明确，生成 prebuild 快照时只执行到
 `updateContentCommand`，**不会运行 `postCreateCommand`**；而且 prebuild 期间拿不到用户级密钥。
@@ -191,6 +205,8 @@ dist/apk-info.json / dist/apk-verify.json
 | e2e 闸门被跳过（日志出现「未检测到 chromium/chrome」） | 本地没装浏览器。Codespace 里可 `npx puppeteer browsers install chrome` 后设 `CHROME_BIN`（**别用 apt 装**，理由同上）；CI 里工作流已显式安装 |
 | 老用户装不上新 APK | **证书换了**（见 §1）。确认指纹是否还是 `dfda920e…`；不同则只能卸载重装 |
 | prebuild 里出现了密钥 | 不可能，除非把恢复逻辑写进了 `updateContentCommand` 或 Dockerfile。密钥只允许出现在 `post-create.sh` |
+| `gh codespace ssh` 报 `error getting ssh server details: failed to start SSH server:` | 容器里没有 sshd。见 §3.1：自定义 Dockerfile 的仓库必须在 `features` 里声明 `ghcr.io/devcontainers/features/sshd:1`，并且**删掉重建** Codespace（feature 不进已有实例）。判据：`command -v sshd` 有输出才是装上了 |
+| 云端工作区能开能停，但读写文件/跑命令全失败 | 同上一条的另一种表现。控制面走 GitHub REST API，数据面走 `gh codespace ssh`，缺 sshd 时只有数据面全挂 |
 
 ---
 

@@ -10,6 +10,15 @@
   "features": {
     "ghcr.io/devcontainers/features/node:1": {
       "version": "22"
+    },
+    // 容器内必须有 sshd：`gh codespace ssh`（DSH 的 Codespace 工作区插件走的就是这条
+    // 数据通道）是在容器**内部**拉起一个 SSH 服务再经 dev tunnel 转发过来的，不是从
+    // 外面直连。GitHub 文档的口径：默认 dev container 镜像自带并自动启动 sshd，凡是
+    // 用自定义 Dockerfile 的仓库都没有 —— 本仓库正是 `build.dockerfile`，所以必须自己
+    // 声明这条 feature，否则 Codespace 能开能停、文件读写和命令一条都跑不了。
+    // 改完必须**删除并重建** Codespace 才生效（feature 在创建时烘进容器）。
+    "ghcr.io/devcontainers/features/sshd:1": {
+      "version": "latest"
     }
   },
 
