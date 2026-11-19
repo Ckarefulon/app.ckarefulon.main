@@ -102,6 +102,7 @@ base64 -w0 keys/Ckarefulon.keystore > keys-b64.txt    # macOS 用 base64 -i ... 
 ```
 .devcontainer/
 ├── Dockerfile            JDK 21 + Android SDK（platform-tools / android-36 / build-tools 36.0.0）
+│                         + headless Chrome 的系统依赖（E2E 闸门用）
 ├── devcontainer.json     镜像 + Node 22 / sshd 两个 feature + 生命周期命令 + 机器规格
 ├── update-content.sh     prebuild 阶段跑：npm ci + 预热 Gradle 发行版（幂等）
 └── post-create.sh        创建 Codespace 时跑：恢复签名私钥（绝不进 prebuild 快照）
@@ -179,6 +180,36 @@ dist/apk-info.json / dist/apk-verify.json
 
 只想要包、不做质量闸门（快，但没跑测试）：`npm run android:sync && npm run apk:debug`。
 
+### 3.5 新建 Codespace 后的第一次构建（实测清单）
+
+在新开的 Codespace 里从零跑通一次（2026-11 实测：2 核环境 4.9MB APK 约 2.5 分钟出包）：
+
+```bash
+# 1) E2E 闸门要真浏览器。镜像已装好系统依赖，只差二进制：
+npx puppeteer browsers install chrome
+#    装到 ~/.cache/puppeteer/chrome/<ver>/chrome-linux64/chrome
+#    build-apk.mjs 会自动找到它，不用导 CHROME_BIN。
+#    ⚠️ 只装二进制不够：缺 libglib 等系统库时启动直接报
+#       chrome: error while loading shared libraries: libglib-2.0.so.0
+#       依赖已进镜像（.devcontainer/Dockerfile），老实例可临时补：
+#       sudo apt-get update && sudo apt-get install -y libglib2.0-0 libnss3 \
+#         libnspr4 libdbus-1-3 libatk1.0-0 libatk-bridge2.0-0 libcups2 libdrm2 \
+#         libxkbcommon0 libatspi2.0-0 libx11-6 libxcomposite1 libxdamage1 \
+#         libxext6 libxfixes3 libxrandr2 libgbm1 libpango-1.0-0 libcairo2 libasound2
+
+# 2) 出包（干净检出直接跑，不需要先手工 sync）
+npm run apk
+npm run verify
+```
+
+**干净检出可以直接 `npm run apk`**：`android/capacitor-cordova-android-plugins/` 是生成物、
+不在仓库里，脚本发现它缺失会自动改跑 `cap sync` 补上（只跑 `cap copy` 补不出来，
+gradle 会报 `Could not read script .../cordova.variables.gradle as it does not exist`）。
+
+**没有 `keys/` 时 `npm run verify` 必然红一项**（`签名者为 Ckarefulon`），因为构建回落到
+debug 签名（`CN=Android Debug`）——包能装能测，但不是发布签名。要真签名先把个人密钥
+配好（§3.2），或在终端里临时生成一套（**会换证书**，见 §1）。
+
 ---
 
 ## 4. 什么时候才需要重打 APK
@@ -197,12 +228,14 @@ dist/apk-info.json / dist/apk-verify.json
 | --- | --- |
 | `bash: .devcontainer/xxx.sh: /bin/bash^M: bad interpreter` | 脚本被写成了 CRLF。`.gitattributes` 已钉 `*.sh text eol=lf`；若仍出现，检查本机 `core.autocrlf` 并重取文件 |
 | `SDK location not found` | `ANDROID_HOME` 没生效。`devcontainer.json` 的 `containerEnv` 已设 `/opt/android-sdk`；本地构建则见 `docs/本地构建.md` |
-| Gradle 报找不到 `:capacitor-cordova-android-plugins` | 干净检出后没跑 `cap sync`。该目录是生成物、不在仓库里，而 `android/settings.gradle` 会 `include` 它 —— 先跑 `npm run android:sync`（工作流里已有这一步） |
+| Gradle 报找不到 `:capacitor-cordova-android-plugins` | 干净检出后没跑 `cap sync`。该目录是生成物、不在仓库里，而 `android/settings.gradle` 会 `include` 它 —— 直接跑 `npm run build`（`build-apk.mjs` 会检测缺失并自动改跑 `cap sync`），或先手动 `npm run android:sync` |
 | `Failed to install the following Android SDK packages` | 协议未接受。镜像里已 `sdkmanager --licenses`；手动补装：`sdkmanager --install "platforms;android-36" "build-tools;36.0.0"` |
 | `Gradle build daemon disappeared unexpectedly` | 内存不足。`hostRequirements` 已要求 4 核 / 8GB；仍失败就 `./gradlew --stop` 后重试。脚本本身也会按总内存自动切低内存串行模式 |
 | 每次 prebuild 都重装依赖 | `node_modules/.ck-lock-sha256` 是判断依据；若 `node_modules` 被清了（不在快照里）就会重装，属预期 |
 | 构建镜像时 `apt-get update` 退出码 100 / `NO_PUBKEY 62D54FD4003F6525` | 基础镜像里烘着 `dl.yarnpkg.com` 的 apt 源和「当时」的 Yarn 签名公钥，Yarn 后来轮换了密钥 → 该源变成未签名 → `set -e` 中断构建。**2026-10 实际踩到**。`Dockerfile` 已在 `apt-get update` 前定向删除这个源（见那里的注释）。注意：别用 `apt-get install chromium` 绕，那会踩同一个坑 |
-| e2e 闸门被跳过（日志出现「未检测到 chromium/chrome」） | 本地没装浏览器。Codespace 里可 `npx puppeteer browsers install chrome` 后设 `CHROME_BIN`（**别用 apt 装**，理由同上）；CI 里工作流已显式安装 |
+| e2e 闸门被跳过（日志出现「未检测到 chromium/chrome」） | 没装浏览器。Codespace 里 `npx puppeteer browsers install chrome` 即可（**别用 apt 装**，理由同上）；装好后 `build-apk.mjs` 会自动从 `~/.cache/puppeteer` 找到它，**不用导 `CHROME_BIN`**；CI 里工作流已显式安装 |
+| Chrome 装好了但报 `error while loading shared libraries: libglib-2.0.so.0: cannot open shared object file` | puppeteer 只下二进制、不装系统库。镜像已预装这组依赖（`Dockerfile` 里那一串 libglib/libnss/...）；**老 Codespace 实例**是旧镜像，按 §3.5 的 apt 命令临时补一次，或删掉重建实例拿新镜像 |
+| `npm run verify` 红一项「签名者为 Ckarefulon」 | 没有 `keys/`，构建回落到 debug 签名（`CN=Android Debug`）。要真签名先配 §3.2 的个人密钥。**这不代表包坏了**（其余 14 项都过、能装能测） |
 | 老用户装不上新 APK | **证书换了**（见 §1）。确认指纹是否还是 `dfda920e…`；不同则只能卸载重装 |
 | prebuild 里出现了密钥 | 不可能，除非把恢复逻辑写进了 `updateContentCommand` 或 Dockerfile。密钥只允许出现在 `post-create.sh` |
 | `gh codespace ssh` 报 `error getting ssh server details: failed to start SSH server:` | 容器里没有 sshd。见 §3.1：自定义 Dockerfile 的仓库必须在 `features` 里声明 `ghcr.io/devcontainers/features/sshd:1`，并且**删掉重建** Codespace（feature 不进已有实例）。判据：`command -v sshd` 有输出才是装上了 |

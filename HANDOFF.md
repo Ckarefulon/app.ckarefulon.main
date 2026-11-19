@@ -1,6 +1,9 @@
 # 交接说明（HANDOFF）
 
-> 目标仓库：https://gitlink.org.cn/Careful_S/transit（2026-10 由 `tmp` 改名；旧地址平台会自动重定向，但文档一律写新名）
+> 当前仓库（日常都在这里干活）：https://github.com/Ckarefulon/app.ckarefulon.main —— **壳工程已独立成库**，
+> 它的工作环境是 **GitHub Codespace**（`.devcontainer/`，见 §3「环境注意」）。
+> 旧仓库：https://gitlink.org.cn/Careful_S/transit（2026-10 由 `tmp` 改名；里面是 `ckarefulon-app/` 子目录形式，
+> **已落后**：没有 `.devcontainer/`、README 仍是「放进站点仓库」的旧口径，**不要再往那边同步**）
 > 状态基线：APK `release/Ckarefulon-1.0.0-131-release.apk`（versionCode 131，签名 CN=Ckarefulon，v2+v3）
 > 130 = 129 + 跨域「网页通道不通自动改走系统通道」；131 = 130 + 失败主机冷却（见 §5「跨域『主机不可达』」条）。
 > **装 131，不要装 130**：130 里凡是连不上的主机，每次请求都要多等一轮原生超时才报错。
@@ -58,16 +61,25 @@
    点首页目录卡片进真实站点页（不许落到启动页/死页）
    - 静态服务模拟 Capacitor 本地服务器（http://127.0.0.1:8099，http 源）
    - 断网用 CDP `Network.emulateNetworkConditions`；reload 由页面内触发 + 轮询（puppeteer 导航 Promise 在离线模拟下会自阻塞）
-   - 没有 chromium 时**跳过**（仅警告）；`CHROME_BIN` 可指定路径
-6. gradle 分阶段（1GB 内存沙箱适配）：Kotlin → 资源 → dex → 打包；每阶段失败自动清场重试一次
+   - 没有 chromium 时**跳过**（仅警告）；`CHROME_BIN` 可指定路径，未设时脚本会自动找
+     `/usr/bin/{chromium,google-chrome}`、`/opt/{chrome,chromium}` 和 puppeteer 缓存（`~/.cache/puppeteer`）
+6. gradle 分阶段（低内存机器适配，≤2GB 才切串行）：Kotlin → 资源 → dex → 打包；每阶段失败自动清场重试一次
 7. `scripts/make-app-kit.mjs`：重打 `release/Ckarefulon-app-kit.zip`（换机器重建源码包，
    要提交进仓库）——**已并入 `npm run apk` 末尾**，改完源码出一次包它就跟着刷新；
    失败只警告，不拖累 APK
 
-环境注意（沙箱 1GB RAM）：
-- gradle 参数见 `scripts/build-apk.mjs` stages（小堆+大 metaspace+SerialGC+in-process Kotlin）
-- 构建前/失败后清理 java/aapt2/chromium 残留进程（内存抖动主因）
-- 工具链：JDK21、Node22、Android SDK 36（platform-tools/build-tools 36）
+环境注意：
+- **当前工作环境 = GitHub Codespace**（`Ckarefulon/app.ckarefulon.main`，Linux / 16GB RAM / 4 核 / 31GB 盘），
+  不再是原来的 1GB 沙箱 —— gradle 走标准模式（`-Xmx2048m` 并行），低内存分支只在 ≤2GB 时才触发
+- 实测出包耗时：干净检出约 2.5 分钟（Kotlin/资源大多 from-cache），增量约 20 秒
+- gradle 参数见 `scripts/build-apk.mjs` stages；构建前/失败后清理 java/aapt2/chromium 残留进程
+- 工具链：JDK21（`/usr/lib/jvm/msopenjdk-current`）、Node22、Android SDK 36（`/opt/android-sdk`）
+- **干净检出可直接 `npm run apk`**：`android/capacitor-cordova-android-plugins/` 不在仓库里，
+  `build-apk.mjs` 检测到缺失会自动改跑 `cap sync`（只跑 `cap copy` 补不出来）
+- **E2E 要 Chrome**：`npx puppeteer browsers install chrome`；系统库已进镜像（`.devcontainer/Dockerfile`），
+  `build-apk.mjs` 会自动从 `~/.cache/puppeteer` 捡到，不用导 `CHROME_BIN`
+- **本环境没有 `keys/`** → release 回落 debug 签名，`npm run verify` 会红一项「签名者为 Ckarefulon」，
+  其余 14 项照常通过（包能装能测）。要真签名先配 Codespaces 个人密钥（见 docs/Codespaces云端构建.md §3.2）
 
 ## 4. 配置单一源
 
@@ -290,8 +302,9 @@ onlineFallbacks（在线模式按钮）、签名信息。`scripts/write-config.m
   不含私钥的新包）：**master 的提交哈希全变了**（重写前 `28d6013` → 现在 `39375d2` 起），
   旧分支 `fix/china-and-boot` 已删除（它只是旧 master 的一个祖先提交，无独有内容）。
   验证方式：新克隆后遍历所有分支的所有 blob、逐个拆 zip 找 `*.keystore`，命中 0。
-  ⚠️ 重写前的整仓备份留在构建机的 `/workspace/backup-ckarefulon-before-purge.bundle`
-  （**只在本机，未上传**），确认无碍后可删。
+  ⚠️ 重写前的整仓备份当时留在旧构建机的 `/workspace/backup-ckarefulon-before-purge.bundle`
+  （只在那台机器上，从未上传）。**旧构建机已不再使用**（现在的工作环境是 GitHub Codespace，
+  见 §3「环境注意」），那份备份随之失联 —— 不影响：它里面带的正是**已作废**的旧证书。
   ⚠️ 其它机器上的旧克隆会与远端冲突，用 `git fetch origin && git reset --hard origin/master`
   或直接重新克隆。
 - **蓝牙「一直开着」仍报「蓝牙未就绪」（2026-09 修，真机回执 126，127 修复）**：

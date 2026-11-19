@@ -206,6 +206,51 @@ export function readContentVersion(siteDir, relFile) {
   return null;
 }
 
+/**
+ * 找 headless Chrome（E2E 闸门用）。找到返回绝对路径，找不到返回 null。
+ *
+ * 顺序：$CHROME_BIN → 常见的系统安装路径 → puppeteer 的下载缓存。
+ * 为什么要认 puppeteer 缓存：Codespace 里不装系统 chromium（不该用 apt 装，见
+ * docs/Codespaces云端构建.md §5），标准做法是 `npx puppeteer browsers install chrome`，
+ * 它把二进制下到 ~/.cache/puppeteer/chrome/<ver>/chrome-linux64/chrome。
+ * 早先只有 build-apk.mjs 认这个路径，于是单独跑 `npm run e2e` 会直接报
+ * "Browser was not found at the configured executablePath (/usr/bin/chromium)"。
+ */
+export function findChrome() {
+  const env = process.env.CHROME_BIN;
+  if (env && fs.existsSync(env)) return env;
+  for (const p of ['/usr/bin/chromium', '/usr/bin/chromium-browser', '/usr/bin/google-chrome', '/usr/bin/chrome']) {
+    if (fs.existsSync(p)) return p;
+  }
+  for (const dir of ['/opt/chrome', '/opt/chromium']) {
+    try {
+      const hit = fs.readdirSync(dir, { recursive: true }).find((f) => {
+        const abs = path.join(dir, String(f));
+        try { return fs.statSync(abs).isFile() && /chrome(-headless-shell)?$/.test(String(f)); } catch (e) { return false; }
+      });
+      if (hit) return path.join(dir, hit);
+    } catch (e) { /* 目录不存在 */ }
+  }
+  // puppeteer 缓存：取版本号最高的那个
+  const home = process.env.HOME || process.env.USERPROFILE || '';
+  const caches = [process.env.PUPPETEER_CACHE_DIR, path.join(home, '.cache', 'puppeteer'),
+    path.join(home, 'AppData', 'Local', 'puppeteer')].filter(Boolean);
+  for (const cache of caches) {
+    const root = path.join(cache, 'chrome');
+    let versions = [];
+    try { versions = fs.readdirSync(root).sort((a, b) => b.localeCompare(a, undefined, { numeric: true })); } catch (e) { continue; }
+    for (const v of versions) {
+      const p = process.platform === 'win32'
+        ? path.join(root, v, 'chrome-win64', 'chrome.exe')
+        : process.platform === 'darwin'
+          ? path.join(root, v, 'chrome-mac', 'Chromium.app', 'Contents', 'MacOS', 'Chromium')
+          : path.join(root, v, 'chrome-linux64', 'chrome');
+      if (fs.existsSync(p)) return p;
+    }
+  }
+  return null;
+}
+
 /* ------------------------------ 下载 ------------------------------ */
 export async function download(url, destFile, { timeoutMs = 60000 } = {}) {
   ensureDir(path.dirname(destFile));

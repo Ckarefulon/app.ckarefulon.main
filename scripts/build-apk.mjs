@@ -11,7 +11,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { execFileSync } from 'node:child_process';
-import { ROOT, ensureDir, loadConfig, log, paths, sha256File, fileSize, writeJson, utcStamp } from './lib.mjs';
+import { ROOT, ensureDir, findChrome, loadConfig, log, paths, sha256File, fileSize, writeJson, utcStamp } from './lib.mjs';
 
 const cfg = loadConfig();
 const argv = process.argv.slice(2);
@@ -86,10 +86,18 @@ for (const s of ['write-config.mjs', 'build-web.mjs', 'sync-shell.mjs']) {
   }
 }
 const capBin = path.join(ROOT, 'node_modules', '@capacitor', 'cli', 'bin', 'capacitor');
+// 干净检出（新克隆 / 新建 Codespace）里 android/capacitor-cordova-android-plugins/ 是生成物、
+// 不在仓库里，而 android/settings.gradle 会 include 它 → 只跑 `cap copy` 补不上它，
+// gradle 在配置阶段就报 "Could not read script .../cordova.variables.gradle as it does not exist"。
+// 2026-11 在新 Codespace 上实际踩到：`npm run apk` 自称自包含，其实第一步就挂。
+// 所以：缺这个目录就改用 `cap sync`（copy + update，update 才会重新生成插件工程）。
+const cordovaPluginsDir = path.join(paths.android, 'capacitor-cordova-android-plugins');
+const needSync = !fs.existsSync(path.join(cordovaPluginsDir, 'cordova.variables.gradle'));
+if (needSync) log.warn('android/capacitor-cordova-android-plugins 缺失（干净检出），改用 cap sync 生成插件工程');
 try {
-  execFileSync(process.execPath, [capBin, 'copy', 'android'], { cwd: ROOT, stdio: 'inherit' });
+  execFileSync(process.execPath, [capBin, needSync ? 'sync' : 'copy', 'android'], { cwd: ROOT, stdio: 'inherit' });
 } catch (e) {
-  log.die('cap copy 失败：' + String(e?.message || e).slice(0, 200));
+  log.die(`cap ${needSync ? 'sync' : 'copy'} 失败：` + String(e?.message || e).slice(0, 200));
 }
 
 /* ------------------------------ Android 工程定制（版本号/签名/权限/MainActivity） ------------------------------ */
@@ -117,26 +125,10 @@ try {
 }
 
 /* ---- 真浏览器端到端：只测"进不进得去首页 + 断网进不进得去" ---- */
-// 这是一道关键闸门（sw.js 的改动只有真浏览器能暴露），以前只认 /usr/bin/chromium
-// 这三个路径 —— 机器上装的是 chrome-headless-shell 时整道闸门被**静默跳过**，
-// 看起来一切正常，其实什么都没测到。
-function findChrome() {
-  const env = process.env.CHROME_BIN;
-  if (env && fs.existsSync(env)) return env;
-  for (const p of ['/usr/bin/chromium', '/usr/bin/chromium-browser', '/usr/bin/google-chrome', '/usr/bin/chrome']) {
-    if (fs.existsSync(p)) return p;
-  }
-  for (const dir of ['/opt/chrome', '/opt/chromium']) {
-    try {
-      const hit = fs.readdirSync(dir, { recursive: true }).find((f) => {
-        const abs = path.join(dir, String(f));
-        try { return fs.statSync(abs).isFile() && /chrome(-headless-shell)?$/.test(String(f)); } catch (e) { return false; }
-      });
-      if (hit) return path.join(dir, hit);
-    } catch (e) { /* 目录不存在 */ }
-  }
-  return null;
-}
+// 这是一道关键闸门（sw.js 的改动只有真浏览器能暴露）。早先只认 /usr/bin/chromium 这几个
+// 路径，机器上装的其实是 chrome-headless-shell 时整道闸门被**静默跳过**，看起来一切正常、
+// 其实什么都没测到。浏览器探测已提到 lib.mjs 的 findChrome()（`npm run e2e` 单独跑也要用），
+// 除了系统安装路径还认 puppeteer 的下载缓存 —— Codespace 里正是靠它。
 const chromeBin = findChrome();
 if (chromeBin) {
   log.info(`E2E 浏览器：${chromeBin}`);

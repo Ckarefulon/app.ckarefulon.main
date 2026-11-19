@@ -9,7 +9,7 @@ import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
 import puppeteer from 'puppeteer-core';
-import { ROOT, log, paths } from './lib.mjs';
+import { ROOT, findChrome, log, paths } from './lib.mjs';
 
 const PORT = 8099;
 const MIME = {
@@ -37,8 +37,14 @@ const server = http.createServer((req, res) => {
 await new Promise((r) => server.listen(PORT, '127.0.0.1', r));
 log.info(`静态服务已启动：http://127.0.0.1:${PORT}/（模拟 Capacitor 本地服务器）`);
 
+const chromeBin = findChrome();
+if (!chromeBin) {
+  log.err('找不到 headless Chrome。装一个再跑：npx puppeteer browsers install chrome');
+  log.err('（也可以用 CHROME_BIN 指定已有浏览器的路径）');
+  process.exit(1);
+}
 const browser = await puppeteer.launch({
-  executablePath: process.env.CHROME_BIN || '/usr/bin/chromium',
+  executablePath: chromeBin,
   headless: true,
   args: ['--no-sandbox', '--disable-dev-shm-usage', '--disable-gpu'],
 });

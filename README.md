@@ -44,7 +44,7 @@
 ## 2. 目录结构
 
 ```
-app-android/                     ← 把本目录放进站点仓库根目录（名字固定为 app-android）
+app.ckarefulon.main/             ← 本仓库（壳工程独立成库，不再放进站点仓库）
 ├── app.config.json              ★ 唯一配置源：包名/版本/签名/更新源/打包规则
 ├── capacitor.config.json        由 scripts/write-config.mjs 生成，勿手改
 ├── shell/                       APK 内置的启动壳页面
@@ -58,7 +58,8 @@ app-android/                     ← 把本目录放进站点仓库根目录（�
 │   ├── make-bundle.mjs          ★ 构建 OTA 资源包（复制+离线化+注入+zip+清单）
 │   ├── publish-ota.mjs          ★ 发布到站点仓库 app-ota/ 并推送
 │   ├── patch-android.mjs        定制 Android 工程（权限/签名/版本/图标引用）
-│   ├── build-apk.mjs / verify-apk.mjs   构建 + 13 项校验
+│   ├── build-apk.mjs / verify-apk.mjs   构建 + 15 项校验
+│   ├── utest.mjs / ptest.mjs / smoke.mjs / e2e.mjs   四道质量闸门
 │   ├── make-keystore.mjs        生成 Ckarefulon 签名
 │   ├── make-assets.mjs          站点 favicon.svg → 各密度图标/启动图
 │   └── bump.mjs                 版本号管理
@@ -78,8 +79,8 @@ app-android/                     ← 把本目录放进站点仓库根目录（�
 
 ```powershell
 # 前置：Node 22+、JDK 21、Android SDK（装 Android Studio 即可）
-git clone https://gitee.com/Ckarefulon/Ckarefulon.github.io.git
-cd Ckarefulon.github.io\app-android
+git clone https://github.com/Ckarefulon/app.ckarefulon.main.git
+cd app.ckarefulon.main
 .\build.ps1                 # 构建 release APK + 校验
 .\build.ps1 -Mode all       # APK + OTA 资源包
 ```
@@ -140,11 +141,16 @@ adb install -r release/Ckarefulon-latest-release.apk
 
 | 闸门 | 命令 | 作用 | 失败后果 |
 | --- | --- | --- | --- |
+| 离线单元 | `npm run utest` | vm 拉起 sw.js + precache，覆盖蓝牙就绪判定 / MIME 归一化 / 镜像兜底 / 原生桥 / 跨域兜底（135 项） | **阻断出包** |
 | 真网功能测试 | `npm run ptest` | 真下载全部首屏核心 + vendor（多传输链），并验证"下载→入缓存回执"链路 | **阻断出包**（离线环境自动跳过） |
 | 冒烟测试 | `npm run smoke` | 在 jsdom 里真实执行壳运行时（壳角色 + 站点角色），任何 ReferenceError/TypeError/启动失败即失败 | **阻断出包** |
-| APK 校验 | `npm run verify` | apksigner + aapt2：签名/包名/版本/权限/壳内容共 14 项 | 仅报告 |
+| 端到端 | `node scripts/e2e.mjs` | 真浏览器（headless Chrome）三阶段：有网首启进首页 / 断网 reload 进首页 / 点目录卡片进真实站点页 | **阻断出包**（未装浏览器时跳过并警告） |
+| APK 校验 | `npm run verify` | apksigner + aapt2：签名/包名/版本/权限/壳内容/内容新鲜度共 15 项 | 仅报告 |
 
-`npm run apk` 会依次执行 ptest → smoke → gradle → 复制产物；任一闸门失败即停止。
+`npm run apk` 会依次执行 utest → ptest → smoke → e2e → gradle → 复制产物；任一闸门失败即停止。
+
+> Codespace 里 E2E 需要 Chrome：`npx puppeteer browsers install chrome`（镜像里已装好系统依赖，
+> `build-apk.mjs` 会自动从 `~/.cache/puppeteer` 找到它，无需导 `CHROME_BIN`）。
 
 ---
 
@@ -153,7 +159,7 @@ adb install -r release/Ckarefulon-latest-release.apk
 | 命令 | 作用 |
 | --- | --- |
 | `npm run build` | 壳同步 + Android 定制 + 构建签名 APK |
-| `npm run verify` | 校验 APK（签名/包名/版本/权限/壳内容，13 项） |
+| `npm run verify` | 校验 APK（签名/包名/版本/权限/壳内容，15 项） |
 | `npm run ota:bundle` | 构建 OTA 资源包 → `dist/ota/` |
 | `npm run ota:publish -- --push` | 发布资源包到站点仓库并推送（默认推 gitee） |
 | `npm run bump patch` | 版本号 +1（改原生层时用） |

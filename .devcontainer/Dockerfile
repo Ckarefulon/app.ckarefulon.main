@@ -37,12 +37,26 @@ ENV ANDROID_HOME=/opt/android-sdk \
 # 所以删掉后不会被加回来。
 #
 # 注意：注释必须写在 RUN 之外 —— Dockerfile 的多行 RUN 续行里不支持 # 注释。
+#
+# 那一串 libglib2.0-0 / libnss3 / ... 是 **headless Chrome 的运行时依赖**，不是给
+# Android 构建用的。E2E 闸门（scripts/e2e.mjs，跑真浏览器验证"能进首页 / 断网能进"）
+# 在 Codespace 里默认会被跳过：基础镜像没装 chromium，而文档又让人用
+# `npx puppeteer browsers install chrome` 装（不要 apt 装 chromium，理由同上面的
+# yarn 源问题）。但 puppeteer 只下二进制、**不装系统库**，缺 libglib 时启动直接报
+#   chrome: error while loading shared libraries: libglib-2.0.so.0: cannot open ...
+# 2026-11 在新 Codespace 上实际踩到：装完 Chrome 仍跑不起来，E2E 形同虚设。
+# 放进镜像层一次装好，prebuild 快照里就有，创建 Codespace 后开箱即用。
 RUN set -eux; \
     rm -f /etc/apt/sources.list.d/yarn.list; \
     sed -i '/dl\.yarnpkg\.com/d' /etc/apt/sources.list 2>/dev/null || true; \
     grep -rlZ 'dl\.yarnpkg\.com' /etc/apt/sources.list.d 2>/dev/null | xargs -0 -r rm -f; \
     apt-get update; \
-    apt-get install -y --no-install-recommends curl unzip ca-certificates; \
+    apt-get install -y --no-install-recommends \
+        curl unzip ca-certificates \
+        libglib2.0-0 libnss3 libnspr4 libdbus-1-3 libatk1.0-0 libatk-bridge2.0-0 \
+        libcups2 libdrm2 libxkbcommon0 libatspi2.0-0 libx11-6 libxcomposite1 \
+        libxdamage1 libxext6 libxfixes3 libxrandr2 libgbm1 libpango-1.0-0 \
+        libcairo2 libasound2; \
     rm -rf /var/lib/apt/lists/*; \
     tools_zip=/tmp/android-commandline-tools.zip; \
     curl --fail --location --retry 3 --retry-delay 2 \

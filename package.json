@@ -26,6 +26,7 @@
     "bump": "node scripts/bump.mjs",
     "clean": "node -e \"import('node:fs').then(fs=>['www','dist/ota','android/app/build'].forEach(p=>fs.rmSync(p,{recursive:true,force:true})))\"",
     "smoke": "node scripts/smoke.mjs",
+    "e2e": "node scripts/e2e.mjs",
     "utest": "node scripts/utest.mjs",
     "ptest": "node scripts/ptest.mjs"
   },
