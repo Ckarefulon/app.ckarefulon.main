@@ -182,6 +182,19 @@ dist/apk-info.json / dist/apk-verify.json
 
 ### 3.5 新建 Codespace 后的第一次构建（实测清单）
 
+**先跑自检**，它会逐项告诉你缺什么、怎么补（比直接跑完整流水线快得多，也不会
+把环境问题伪装成"构建失败"）：
+
+```bash
+npm run doctor            # 人读；npm run doctor -- --quiet 只报问题；--offline 跳过联网检查
+```
+
+自检覆盖：Node/JDK 21/Android SDK 组件/node_modules/cordova 插件工程/发布签名
+（含证书指纹是否还是 131 基线）/E2E 浏览器能否真的启动/各更新源连通性/release 基线
+是否被 debug 签名污染/工作区有没有散落的私钥。退出码 0 = 可以出包，1 = 有阻塞项。
+
+然后按下面走：
+
 在新开的 Codespace 里从零跑通一次（2026-11 实测：2 核环境 4.9MB APK 约 2.5 分钟出包）：
 
 ```bash

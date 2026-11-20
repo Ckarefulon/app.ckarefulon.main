@@ -11,7 +11,10 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { execFileSync } from 'node:child_process';
-import { ROOT, ensureDir, findChrome, loadConfig, log, paths, sha256File, fileSize, writeJson, utcStamp } from './lib.mjs';
+import {
+  ROOT, ensureDir, findAndroidSdk, findChrome, findJavaHome, loadConfig, log, paths,
+  sha256File, fileSize, writeJson, utcStamp,
+} from './lib.mjs';
 
 const cfg = loadConfig();
 const argv = process.argv.slice(2);
@@ -20,35 +23,8 @@ const variant = debug ? 'debug' : 'release';
 const noDaemon = argv.includes('--no-daemon') || !!process.env.CI;
 
 /* ------------------------------ 环境检查 ------------------------------ */
-function findJavaHome() {
-  if (process.env.JAVA_HOME && fs.existsSync(path.join(process.env.JAVA_HOME, 'bin', 'java'))) return process.env.JAVA_HOME;
-  const guesses = [
-    '/usr/lib/jvm/java-21-openjdk-amd64',
-    '/usr/lib/jvm/java-17-openjdk-amd64',
-    '/opt/jdk21', '/opt/jdk17',
-    '/Library/Java/JavaVirtualMachines/temurin-21.jdk/Contents/Home',
-    'C:\\Program Files\\Eclipse Adoptium\\jdk-21',
-    'C:\\Program Files\\Java\\jdk-21',
-    'C:\\Program Files\\Android\\Android Studio\\jbr',
-  ];
-  for (const g of guesses) if (fs.existsSync(path.join(g, 'bin', 'java'))) return g;
-  return null;
-}
-
-function findAndroidSdk() {
-  const env = process.env.ANDROID_HOME || process.env.ANDROID_SDK_ROOT;
-  if (env && fs.existsSync(env)) return env;
-  const guesses = [
-    path.join(os.homedir(), 'Android', 'Sdk'),
-    path.join(os.homedir(), 'AppData', 'Local', 'Android', 'Sdk'),
-    '/opt/android-sdk',
-    '/usr/local/android-sdk',
-    path.join(os.homedir(), 'Library', 'Android', 'sdk'),
-  ];
-  for (const g of guesses) if (fs.existsSync(g)) return g;
-  return null;
-}
-
+// 探测逻辑统一在 lib.mjs（原来每个脚本各写一份候选表，换台机器就有一个找不到：
+// 本环境 JDK 在 /usr/lib/jvm/msopenjdk-current，老表里没有它，全靠 JAVA_HOME 兜着）
 const JAVA_HOME = findJavaHome();
 const ANDROID_HOME = findAndroidSdk();
 if (!JAVA_HOME) log.die('找不到 JDK（需要 21+）。请安装 Temurin JDK 21 并设置 JAVA_HOME');
@@ -68,9 +44,15 @@ if (!fs.existsSync(localProps) || !fs.readFileSync(localProps, 'utf8').includes(
 }
 
 /* ------------------------------ keystore 检查 ------------------------------ */
+// 没有发布签名时，gradle 会静默回落到 debug 签名（见 patch-android.mjs 的 buildTypes）。
+// 那种包能装能测，但**绝不能**覆盖 release/ 里的发布基线 —— 否则仓库里留着的
+// "最新发布包"会变成一张 Android Debug 证书签的包，之后谁拿它给老用户升级都装不上，
+// 而且看起来一切正常（2026-11 在本环境实际发生过两次，靠手工 git checkout 才救回来）。
 const keystoreFile = path.join(ROOT, cfg.signer.keystore);
-if (variant === 'release' && !fs.existsSync(keystoreFile)) {
-  log.warn(`未找到签名文件 ${cfg.signer.keystore}，先执行：npm run keystore`);
+const hasReleaseSigner = fs.existsSync(keystoreFile);
+if (variant === 'release' && !hasReleaseSigner) {
+  log.warn(`未找到签名文件 ${cfg.signer.keystore}，本次将回落 debug 签名（仅测试用，不能发布）`);
+  log.warn('  要正式签名：配 Codespaces 个人密钥（docs/Codespaces云端构建.md §3.2），或 npm run keystore 重建（= 换证书）');
 }
 
 /* ------------------------------ 同步网页代码 + 壳配置进 APK（防旧代码出门） ------------------------------ */
@@ -228,10 +210,16 @@ fs.copyFileSync(apkPath, dest);
 fs.copyFileSync(apkPath, path.join(paths.dist, `Ckarefulon-latest-${variant}.apk`));
 
 // 额外镜像一份到 release/（工作区持久目录，dist/ 不会被保留）
+// ⚠️ 只有**真发布签名**的包才能进 release/：那个目录是随仓库提交的发布基线，
+// 塞进 debug 签名的包等于把证书身份搞坏（见上面的 keystore 检查）。
 const releaseDir = path.join(ROOT, 'release');
-ensureDir(releaseDir);
-fs.copyFileSync(apkPath, path.join(releaseDir, name));
-fs.copyFileSync(apkPath, path.join(releaseDir, `Ckarefulon-latest-${variant}.apk`));
+if (hasReleaseSigner) {
+  ensureDir(releaseDir);
+  fs.copyFileSync(apkPath, path.join(releaseDir, name));
+  fs.copyFileSync(apkPath, path.join(releaseDir, `Ckarefulon-latest-${variant}.apk`));
+} else {
+  log.warn(`未镜像到 release/：${variant} 包签名不是 ${cfg.signer.name}（debug 签名不得覆盖发布基线）`);
+}
 
 // 顺带重打「换机器重建」源码包（release/Ckarefulon-app-kit.zip）。它同样要提交进仓库，
 // 所以必须跟着发版走：2026-10 出 131 时它就停在 129，包里少了 130/131 的跨域兜底，

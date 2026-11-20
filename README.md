@@ -158,6 +158,7 @@ adb install -r release/Ckarefulon-latest-release.apk
 
 | 命令 | 作用 |
 | --- | --- |
+| `npm run doctor` | **环境自检**（JDK/SDK/Chrome/签名/更新源/仓库卫生），干活前先跑这个 |
 | `npm run build` | 壳同步 + Android 定制 + 构建签名 APK |
 | `npm run verify` | 校验 APK（签名/包名/版本/权限/壳内容，15 项） |
 | `npm run ota:bundle` | 构建 OTA 资源包 → `dist/ota/` |

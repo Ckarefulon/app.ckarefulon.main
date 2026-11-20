@@ -206,6 +206,66 @@ export function readContentVersion(siteDir, relFile) {
   return null;
 }
 
+/* ------------------------------ 工具链探测 ------------------------------ */
+// 这三处（JDK / Android SDK / Chrome）以前每个脚本各写一份候选表，结果就是
+// 「换台机器就有一个脚本找不到」：本环境 JDK 在 /usr/lib/jvm/msopenjdk-current，
+// 老表里没有它，全靠 JAVA_HOME 兜着；一旦环境变量没设，build-apk 就报"找不到 JDK"，
+// 而 JDK 明明就在那儿。集中到这里，谁用谁 import，改一处全场生效。
+
+const isExec = (p) => {
+  try { return fs.statSync(p).isFile(); } catch (e) { return false; }
+};
+
+/** 找 JDK（21+ 的目录）。优先 JAVA_HOME，其次扫常见的发行版目录。找不到返回 null。 */
+export function findJavaHome() {
+  const bin = process.platform === 'win32' ? 'java.exe' : 'java';
+  const cands = [];
+  if (process.env.JAVA_HOME) cands.push(process.env.JAVA_HOME);
+  // 扫 /usr/lib/jvm 与 /opt：覆盖 Debian/Ubuntu 的 msopenjdk/temurin/zulu/corretto 各种命名，
+  // 也覆盖 devcontainer java feature 的布局
+  for (const base of ['/usr/lib/jvm', '/opt', '/usr/java']) {
+    try {
+      for (const d of fs.readdirSync(base).sort().reverse()) {
+        if (/jdk|java|temurin|msopenjdk|zulu|corretto|jbr/i.test(d)) cands.push(path.join(base, d));
+      }
+    } catch (e) { /* 目录不存在 */ }
+  }
+  cands.push('/opt/jdk21', '/opt/jdk17',
+    '/Library/Java/JavaVirtualMachines/temurin-21.jdk/Contents/Home',
+    'C:\\Program Files\\Eclipse Adoptium\\jdk-21',
+    'C:\\Program Files\\Java\\jdk-21',
+    'C:\\Program Files\\Android\\Android Studio\\jbr');
+  for (const g of cands) if (g && isExec(path.join(g, 'bin', bin))) return g;
+  return null;
+}
+
+/** 找 Android SDK（含 build-tools 的目录）。找不到返回 null。 */
+export function findAndroidSdk() {
+  const home = process.env.HOME || process.env.USERPROFILE || '';
+  const cands = [process.env.ANDROID_HOME, process.env.ANDROID_SDK_ROOT,
+    path.join(home, 'Android', 'Sdk'),
+    path.join(home, 'AppData', 'Local', 'Android', 'Sdk'),
+    '/opt/android-sdk', '/usr/local/android-sdk',
+    path.join(home, 'Library', 'Android', 'sdk')].filter(Boolean);
+  for (const g of cands) {
+    try { if (fs.statSync(path.join(g, 'build-tools')).isDirectory()) return g; } catch (e) { /* next */ }
+  }
+  return null;
+}
+
+/** build-tools 里版本最高的那个目录（apksigner/aapt2 在这里） */
+export function newestBuildTools(sdk) {
+  const dir = path.join(sdk, 'build-tools');
+  let list = [];
+  try { list = fs.readdirSync(dir).filter((d) => /^\d+\./.test(d)); } catch (e) { return null; }
+  list.sort((a, b) => {
+    const pa = a.split('.').map(Number); const pb = b.split('.').map(Number);
+    for (let i = 0; i < 3; i++) if ((pa[i] || 0) !== (pb[i] || 0)) return (pb[i] || 0) - (pa[i] || 0);
+    return 0;
+  });
+  return list[0] ? path.join(dir, list[0]) : null;
+}
+
 /**
  * 找 headless Chrome（E2E 闸门用）。找到返回绝对路径，找不到返回 null。
  *

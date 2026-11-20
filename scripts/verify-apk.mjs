@@ -4,35 +4,14 @@
  */
 import fs from 'node:fs';
 import path from 'node:path';
-import os from 'node:os';
 import { execFileSync } from 'node:child_process';
 import zlib from 'node:zlib';
-import { ROOT, ensureDir, loadConfig, log, paths, sha256File, fileSize, writeJson } from './lib.mjs';
+import {
+  ROOT, ensureDir, findAndroidSdk, loadConfig, log, newestBuildTools, paths,
+  sha256File, fileSize, writeJson,
+} from './lib.mjs';
 
 const cfg = loadConfig();
-
-function findSdk() {
-  const env = process.env.ANDROID_HOME || process.env.ANDROID_SDK_ROOT;
-  const guesses = [
-    env,
-    path.join(os.homedir(), 'Android', 'Sdk'),
-    path.join(os.homedir(), 'AppData', 'Local', 'Android', 'Sdk'),
-    '/opt/android-sdk',
-    path.join(os.homedir(), 'Library', 'Android', 'sdk'),
-  ].filter(Boolean);
-  for (const g of guesses) if (fs.existsSync(path.join(g, 'build-tools'))) return g;
-  return null;
-}
-
-function newestBuildTools(sdk) {
-  const dir = path.join(sdk, 'build-tools');
-  const list = fs.readdirSync(dir).filter((d) => /^\d+\./.test(d)).sort((a, b) => {
-    const pa = a.split('.').map(Number); const pb = b.split('.').map(Number);
-    for (let i = 0; i < 3; i++) if ((pa[i] || 0) !== (pb[i] || 0)) return (pb[i] || 0) - (pa[i] || 0);
-    return 0;
-  });
-  return list[0] ? path.join(dir, list[0]) : null;
-}
 
 /* ------------------------------ 定位 APK ------------------------------ */
 let apk = process.argv[2];
@@ -57,7 +36,7 @@ if (!apk) {
 apk = path.resolve(apk);
 if (!fs.existsSync(apk)) log.die(`APK 不存在：${apk}`);
 
-const sdk = findSdk();
+const sdk = findAndroidSdk();
 if (!sdk) log.die('找不到 Android SDK（设置 ANDROID_HOME）');
 const bt = newestBuildTools(sdk);
 const apksigner = path.join(bt, process.platform === 'win32' ? 'apksigner.bat' : 'apksigner');
@@ -213,8 +192,17 @@ const verifyJson = {
   verifiedAt: new Date().toISOString(),
 };
 writeJson(path.join(paths.dist, 'apk-verify.json'), verifyJson);
-ensureDir(path.join(ROOT, 'release'));
-writeJson(path.join(ROOT, 'release', 'apk-verify.json'), verifyJson);
+
+// release/apk-verify.json 是随仓库提交的**发布基线记录**（HANDOFF 头部就引用它核对证书指纹）。
+// 校验的是 debug 签名的包时绝不能覆盖它 —— 否则基线会变成 "CN=Android Debug + 那张证书哈希"，
+// 以后拿它当"上一个发布版"来比对就全错了（2026-11 本环境实际踩到）。
+const isReleaseSigned = !!signer.cn && new RegExp(`CN=${cfg.signer.name}`, 'i').test(signer.cn);
+if (isReleaseSigned) {
+  ensureDir(path.join(ROOT, 'release'));
+  writeJson(path.join(ROOT, 'release', 'apk-verify.json'), verifyJson);
+} else {
+  log.warn(`未更新 release/apk-verify.json：本次校验的是 ${signer.cn || '未知签名'}，不是 ${cfg.signer.name} 发布签名`);
+}
 
 if (failed.length) {
   log.die(`${failed.length} 项校验未通过`);
