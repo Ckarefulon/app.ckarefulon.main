@@ -1,7 +1,7 @@
 {
-  "apk": "Ckarefulon-1.0.0-131-release.apk",
-  "bytes": 5170348,
-  "sha256": "a091d9ca0b32932a04ee17f6fd5c65104b18f6db999bd9348f837f9b3fb22f7b",
+  "apk": "Ckarefulon-1.0.1-132-release.apk",
+  "bytes": 5174122,
+  "sha256": "eb40402cfc226c77f579a427af751924ff7e0c0bf4b17e46b784b482e1063597",
   "signer": {
     "verified": true,
     "schemes": [
@@ -9,12 +9,12 @@
       "v3"
     ],
     "cn": "CN=Ckarefulon, OU=Ckarefulon, O=Ckarefulon, L=Internet, ST=Internet, C=CN",
-    "sha256": "dfda920ed20b06ef1d00b32c7c1f9e6fbccac1eb32ddad3c0d5220e7ac10c59e"
+    "sha256": "4b164aa552e1af52bf171ebece28fa6c304b3bc20b9a0cc37bb9e05e5e0eafb9"
   },
   "info": {
     "package": "app.ckarefulon.main",
-    "versionCode": "131",
-    "versionName": "1.0.0",
+    "versionCode": "132",
+    "versionName": "1.0.1",
     "minSdk": "24",
     "targetSdk": "36",
     "label": "Ckarefulon",
@@ -54,11 +54,11 @@
       "ok": true
     },
     {
-      "name": "versionName = 1.0.0",
+      "name": "versionName = 1.0.1",
       "ok": true
     },
     {
-      "name": "versionCode = 131",
+      "name": "versionCode = 132",
       "ok": true
     },
     {
@@ -104,11 +104,11 @@
   ],
   "shell": {
     "files": 9,
-    "bytes": 230573
+    "bytes": 263424
   },
   "freshness": {
     "config": true,
     "staleFiles": []
   },
-  "verifiedAt": "2026-09-27T04:50:50.620Z"
+  "verifiedAt": "2026-11-20T09:28:51.001Z"
 }

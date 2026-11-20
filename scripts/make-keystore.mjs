@@ -38,9 +38,25 @@ function findKeytool() {
 const keytool = findKeytool();
 if (!keytool) log.die('找不到 keytool，请先安装 JDK 17+（并设置 JAVA_HOME）');
 
+/*
+ * 重建签名 = 换掉整个发版身份，代价是**已装用户必须卸载重装**（Android 只认可
+ * 同一证书的覆盖安装）。所以这条路径刻意做成「不容易顺手跑过去」：
+ *   · 已有 keystore 时，光 --force 不够，还要 CK_CONFIRM_ROTATE=1；
+ *   · 打印旧证书指纹，让你先确认丢的是不是真的这一张；
+ *   · 生成完给出必须立刻做的三件事（备份、配密钥、更新基线文档）。
+ * 历史上这个项目已经因为私钥泄露换过一次证书（124–127 全部重装），不该再有第二次。
+ */
 if (fs.existsSync(keystoreFile) && !FORCE) {
   log.ok(`keystore 已存在：${path.relative(ROOT, keystoreFile)}（--force 可重建）`);
+  log.info('查看证书指纹：npm run doctor 的「发布签名」一节');
 } else {
+  if (fs.existsSync(keystoreFile) && FORCE && process.env.CK_CONFIRM_ROTATE !== '1') {
+    log.die(
+      '拒绝执行：重建 keystore 会让已安装用户（128~131）无法覆盖安装。\n'
+      + '  确认要换证书的话，用：CK_CONFIRM_ROTATE=1 npm run keystore -- --force\n'
+      + '  更优先的做法是先把原密钥找回来（密码管理器 / 旧手机 / 换机器前的旧目录）。',
+    );
+  }
   if (fs.existsSync(keystoreFile) && FORCE) {
     log.warn('!! 重建 keystore 后，旧签名的 APK 将无法覆盖安装，用户必须卸载重装');
   }
@@ -108,10 +124,40 @@ function readStorePass() {
   log.die('无法确定 keystore 口令（设置 CK_KEYSTORE_PASSWORD 或补全 keys/keystore.properties）');
 }
 
+const sha256 = (out.match(/SHA256:\s*([0-9A-F:]+)/i) || [])[1] || null;
+
 // 供 CI 使用的摘要
 writeJson(path.join(ROOT, '.build', 'keystore-info.json'), {
   alias: cfg.signer.keyAlias,
   keystore: cfg.signer.keystore,
-  sha256: (out.match(/SHA256:\s*([0-9A-F:]+)/i) || [])[1] || null,
+  sha256,
   owner: (out.match(/Owner:\s*(.+)/) || [])[1]?.trim() || null,
 });
+
+/* 新密钥生成后必须立刻做的三件事 —— 这个项目的密钥已经丢过两次，
+   每次都因为「生成完了就接着用」，没人备份、没人同步 CI。 */
+const BASELINE_SHA = '4b164aa552e1af52bf171ebece28fa6c304b3bc20b9a0cc37bb9e05e5e0eafb9';
+const norm = String(sha256 || '').replace(/:/g, '').toLowerCase();
+log.step('接下来必须做的三件事（别跳）');
+if (norm && norm === BASELINE_SHA) {
+  log.ok('这张证书与 131 发布基线一致 —— 老用户可以直接覆盖安装，不用卸载');
+} else {
+  log.warn(`这是**一张新证书**（与当前基线 ${BASELINE_SHA.slice(0, 8)}… 不同）`
+    + ' → 装了旧证书版本的用户必须卸载重装');
+  log.info('换证书前先把上面这个 SHA-256 记下来，写进 HANDOFF 头部的「证书断代」');
+}
+console.log(`
+  1) 立刻备份（丢了就只能再换一次证书）
+       cp keys/${path.basename(cfg.signer.keystore)} keys/${path.basename(cfg.signer.keystoreProperties)} ~/ck-backup/
+     口令和 keystore **分开**存放（密码管理器 / 离线磁盘）
+
+  2) 同步到 Codespaces 个人密钥（不要用仓库级 —— 本仓库公开，仓库级对所有人可见）
+       base64 -w0 keys/${path.basename(cfg.signer.keystore)} > keys-b64.txt
+     GitHub → 头像 → Settings → Codespaces → Secrets，建四个：
+       CK_KEYSTORE_B64 / CK_KEYSTORE_PASSWORD / CK_KEY_PASSWORD / CK_KEY_ALIAS
+     （Actions 的仓库级 Secrets 也配同一套，工作流才出正式签名包）
+
+  3) 更新文档里的基线
+     HANDOFF.md 头部、docs/签名与发布.md §1 的证书 SHA-256 与「证书断代」表
+     改成上面的新指纹；再跑 npm run verify 重建 release/apk-verify.json
+`);

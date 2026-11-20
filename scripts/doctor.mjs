@@ -128,7 +128,7 @@ if (fs.existsSync(keystore) && fs.existsSync(props)) {
     const fp = out && (out.match(/SHA256:\s*([0-9A-F:]+)/) || [])[1];
     if (fp) {
       const norm = fp.replace(/:/g, '').toLowerCase();
-      const baseline = 'dfda920ed20b06ef1d00b32c7c1f9e6fbccac1eb32ddad3c0d5220e7ac10c59e';
+      const baseline = '4b164aa552e1af52bf171ebece28fa6c304b3bc20b9a0cc37bb9e05e5e0eafb9';
       if (norm === baseline) ok(`证书指纹与 131 发布基线一致（${norm.slice(0, 8)}…）`);
       else warn(`证书指纹 ${norm.slice(0, 8)}… 与 131 基线（${baseline.slice(0, 8)}…）不同：这样签出的包老用户装不上`,
         '装了 128~131 的用户必须先卸载；确认这就是你要换的证书再继续');
@@ -204,14 +204,16 @@ if (releaseApks.length) {
   }
 }
 
-// 私钥绝不能出现在将要提交的东西里
+// 私钥绝不能出现在**将要提交的东西**里。
+// 注意：keys/ 是私钥的合法存放地（已在 .gitignore 里），不是问题；
+// 要抓的是散落在别处、会被 git add 带进公开仓库的那种。
 const secretHit = [];
 const scanSecrets = (dir, depth = 0) => {
   if (depth > 3) return;
   let entries = [];
   try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch (e) { return; }
   for (const e of entries) {
-    if (['node_modules', '.git', '.cache', '.build', 'www', 'dist', 'build', '.gradle'].includes(e.name)) continue;
+    if (['node_modules', '.git', '.cache', '.build', 'www', 'dist', 'build', '.gradle', 'keys'].includes(e.name)) continue;
     const abs = path.join(dir, e.name);
     if (e.isDirectory()) { scanSecrets(abs, depth + 1); continue; }
     if (/\.(keystore|jks|p12|pem|key)$/i.test(e.name) || e.name === 'keystore.properties') {
@@ -220,8 +222,17 @@ const scanSecrets = (dir, depth = 0) => {
   }
 };
 scanSecrets(ROOT);
-if (!secretHit.length) ok('工作区没有散落的签名私钥');
-else warn(`发现私钥文件：${secretHit.join('、')}`, '确认 keys/ 已在 .gitignore 里，且绝不进 app-kit 包（npm run kit 有硬闸门）');
+if (!secretHit.length) ok('keys/ 之外没有散落的私钥');
+else bad(`keys/ 之外发现私钥文件：${secretHit.join('、')}`,
+  '这些会被 git add 带进公开仓库 —— 移进 keys/ 或删掉；app-kit 打包有硬闸门，但 git 没有');
+
+// keys/ 本身必须确实被 git 忽略（含 base64 这种"换个形式"的私钥）
+const keyForms = ['keys/keystore.properties', 'keys-b64.txt'];
+const notIgnored = keyForms.filter((f) => {
+  try { execFileSync('git', ['check-ignore', '-q', f], { cwd: ROOT, stdio: 'ignore' }); return false; } catch (e) { return true; }
+});
+if (notIgnored.length) bad(`这些私钥形态没被 .gitignore 忽略：${notIgnored.join('、')}`, '补进 .gitignore 再提交（base64 与私钥等价）');
+else ok('keys/ 与 keys-b64.txt 均已被 .gitignore 忽略');
 
 /* ============================== 汇总 ============================== */
 console.log('');

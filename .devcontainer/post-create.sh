@@ -49,7 +49,7 @@ if [ -n "${CK_KEYSTORE_B64:-}" ]; then
   echo "[ck] 已从 Codespaces 密钥恢复发布签名"
 
   # 指纹对比：换过证书的话，老用户装不上（必须卸载重装），这里明确提示。
-  baseline='dfda920ed20b06ef1d00b32c7c1f9e6fbccac1eb32ddad3c0d5220e7ac10c59e'
+  baseline='4b164aa552e1af52bf171ebece28fa6c304b3bc20b9a0cc37bb9e05e5e0eafb9'
   fp="$(keytool -list -v -keystore "$keystore" \
           -storepass "$CK_KEYSTORE_PASSWORD" -alias "${CK_KEY_ALIAS:-Ckarefulon}" 2>/dev/null \
         | sed -n 's/^[[:space:]]*SHA256: //p' | head -n 1 | tr -d ':' | tr 'A-Z' 'a-z')"

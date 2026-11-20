@@ -1,8 +1,8 @@
 {
   "appId": "app.ckarefulon.main",
   "appName": "Ckarefulon",
-  "versionName": "1.0.0",
-  "versionCode": 131,
+  "versionName": "1.0.1",
+  "versionCode": 132,
   "signer": {
     "name": "Ckarefulon",
     "keyAlias": "Ckarefulon",

@@ -104,8 +104,9 @@ cd app.ckarefulon.main
 
 - **改网页不需要任何工作流**：App 直接从 jsDelivr/Netlify 读取仓库内容，push 即生效。
 
-> ⚠️ 签名密钥当前**已丢失**（本地、git 历史、app-kit 包里都没有）。重建 = 换证书，
-> 装了 128~131 的用户必须卸载重装。动手前先读 `docs/Codespaces云端构建.md` §1。
+> ⚠️ **132 是新一代证书**：128–131 那代的私钥已确认丢失（本地、git 历史、app-kit 包里都没有），
+> 2026-11 重建。**装了 128~131 的用户必须卸载才能装 132**。
+> 新私钥请立刻备份并同步到 Actions 仓库级 Secret：`npm run keys:export`（见 `docs/签名与发布.md` §1）。
 
 ### 3.4 安装到手机
 
@@ -165,7 +166,8 @@ adb install -r release/Ckarefulon-latest-release.apk
 | `npm run ota:publish -- --push` | 发布资源包到站点仓库并推送（默认推 gitee） |
 | `npm run bump patch` | 版本号 +1（改原生层时用） |
 | `npm run kit` | 打「换机器重建」源码包 → `release/Ckarefulon-app-kit.zip`（**不含签名私钥**） |
-| `npm run keystore` | 重新生成签名（**慎用**：换了签名老用户无法覆盖安装） |
+| `npm run keys:export` | 导出签名供备份 / Codespaces 个人密钥 / Actions Secret（默认不打印敏感值） |
+| `npm run keystore` | 重新生成签名（**慎用**：换了签名老用户无法覆盖安装；需 `CK_CONFIRM_ROTATE=1` 二次确认） |
 | `npm run icons` | 重新生成图标/启动图 |
 
 更多细节见 `docs/`：

@@ -14,6 +14,7 @@
     "shell": "node scripts/sync-shell.mjs",
     "icons": "node scripts/make-assets.mjs",
     "keystore": "node scripts/make-keystore.mjs",
+    "keys:export": "node scripts/export-keys.mjs",
     "android:sync": "npm run config && npm run bundle:js && npm run shell && cap sync android",
     "android:patch": "node scripts/patch-android.mjs",
     "apk": "node scripts/build-apk.mjs",

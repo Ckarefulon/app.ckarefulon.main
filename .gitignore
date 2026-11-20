@@ -16,9 +16,19 @@ android/.idea/
 *.iml
 
 # 签名（！！！不要提交到公开仓库）
+# 注意：base64 只是编码、不是加密 —— keys-b64.txt 与私钥等价。
+# 2026-09 就是因为「以为换了个形式就不算私钥」把它裹进 zip 传上了公开仓库，
+# 最后只能换证书收场。所以这里按「私钥的一切形态」来忽略。
 keys/*.keystore
 keys/*.jks
+keys/*.p12
+keys/*.pem
+keys/*.key
 keys/keystore.properties
+keys-b64.txt
+*.keystore
+*.jks
+keystore.properties
 
 # 系统垃圾
 .DS_Store

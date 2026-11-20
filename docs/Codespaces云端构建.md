@@ -11,17 +11,18 @@
 
 ---
 
-## 1. 先看这个：签名密钥丢了
+## 1. 先看这个：签名密钥丢过，132 是重建出来的
 
-> 当前状态：`keys/Ckarefulon.keystore` 与 `keys/keystore.properties` **本机已不存在**，
-> git 历史与 `release/Ckarefulon-app-kit.zip` 里也没有（app-kit 里只有一份占位 README）。
-> 131 版基线证书是 `dfda920e…`（见 `release/apk-verify.json`）。
+> 当前状态（2026-11）：**128–131 那代的私钥已确认丢失** —— git 全历史、`release/Ckarefulon-app-kit.zip`、
+> 各机器工作区都查过，都没有。已重建当前证书：**132 起**，SHA-256 `4b164aa5…`
+> （见 `release/apk-verify.json` 与 HANDOFF 头部的「证书断代」表）。
 
-这意味着：**重新生成的密钥 = 换了一张证书**。
-按 HANDOFF §5 的证书断代，装了 **128~131** 的用户拿到新证书的包**无法覆盖安装**，必须先卸载重装。
-（128 那次就是因为私钥泄露换过证书；换证书这件事在这个项目里已经发生过一次。）
+这意味着：**装了 128~131 的用户拿到 132 的包无法覆盖安装**，必须先卸载重装。
+（128 那次也是因为私钥泄露换的证书；这已经是本项目第二次换证书。）
 
-所以重建密钥前先接受这个后果，或者先把密钥找回来（旧手机备份、密码管理器、换机器前的旧目录都值得翻一遍）。
+⚠️ 这一次的私钥同样只存在于当前环境 —— **先备份再干活**：
+`npm run keys:export -- --out=~/ck-signing-backup`，然后把两个文件转存到密码管理器
+（keystore 与口令**分开**存放）。备份/恢复往返可验证：解回来 `keytool -list -v` 的指纹应不变。
 
 ### 1.1 重建密钥（只在确实找不回来时做）
 
@@ -132,21 +133,47 @@ Codespace 工作区插件）是在容器**内部**拉起一个 SSH 服务、再�
 本仓库是**公开仓库**，任何人都能开 Codespace。如果密钥进了快照，等于对所有人公开 ——
 2026-09 已经因为私钥泄露被迫换过一次证书，这个坑不能再踩。
 
-### 3.2 配个人密钥（不要用仓库级！）
+### 3.2 密钥放哪：三种 secret，只有两种能用
 
-Codespaces 的**仓库级** Secret 对所有能开 Codespace 的人可见 —— 公开仓库上等于公开。
-必须用**个人**密钥：
+> 先搞清一件事：**「仓库 secret」有两种，安全模型完全不同。**
+>
+> | 位置 | 注入到哪 | 本仓库（public）安全吗 |
+> | --- | --- | --- |
+> | Settings → Secrets → **Actions** | 只有工作流能读 | ✅ **安全，推荐放这里** |
+> | 头像 → Settings → **Codespaces** → Secrets（个人） | 只有**你自己**开的 Codespace | ✅ 安全 |
+> | Settings → Secrets → **Codespaces**（仓库级） | 该仓库的**所有** Codespace | ❌ **等于公开** |
+>
+> 为什么第三种不行：仓库级 Codespaces secret 会注入到这个仓库创建的每一个 Codespace；
+> 而 GitHub 文档写得很清楚 —— 公开仓库**任何有额度的用户都能开 Codespace**
+> （"you can create a codespace for any public repository"）。
+> 两者一叠加，陌生人开个 Codespace 就把私钥读走了。2026-09 那次泄露是同一类后果。
 
-`右上角头像 → Settings → Codespaces → Secrets → New secret`，Repository access 选这个仓库。
+**推荐配置（两条都配，各管一段）**
+
+```bash
+npm run keys:export              # 打印需要备份哪些值（默认不显示 base64）
+npm run keys:export -- --out=~/ck-signing-backup   # 同时落成可直接恢复的文件
+```
+
+① **Actions 仓库级 Secret**（出正式签名包的正路 —— 配好之后 CI 直接出正式签名包，
+   本机与 Codespace 都不需要私钥）：
+   仓库 → Settings → Secrets and variables → **Actions** → New repository secret
+
+② **Codespaces 个人 Secret**（要在 Codespace 里手工出正式签名包时才需要）：
+   右上角头像 → Settings → **Codespaces** → Secrets → New secret，
+   Repository access 选这个仓库。
+
+两处用的名字和值一样：
 
 | 名称 | 值 |
 | --- | --- |
-| `CK_KEYSTORE_B64` | `keys-b64.txt` 内容 |
+| `CK_KEYSTORE_B64` | `npm run keys:export -- --show` 输出的那一整行 |
 | `CK_KEYSTORE_PASSWORD` | `storePassword` |
 | `CK_KEY_PASSWORD` | `keyPassword` |
 | `CK_KEY_ALIAS` | 可省略，默认 `Ckarefulon` |
 
-没配也能用，只是出 debug 签名的包（`post-create.sh` 会提示）。
+都没配也能用，只是出 debug 签名的包（`post-create.sh` 与 `npm run doctor` 都会提示），
+且 `npm run verify` 会红一项「签名者为 Ckarefulon」。
 
 ### 3.3 开 prebuild
 
