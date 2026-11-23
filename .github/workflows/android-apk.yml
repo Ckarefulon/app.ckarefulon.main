@@ -177,8 +177,12 @@ jobs:
             dist/apk-verify.json
           if-no-files-found: error
 
+      # push 到 main 也要发 Release（用户要求「每次完成后发个 release」）。
+      # 原来的条件是 `tag || inputs.publishRelease` —— push 触发时 tag 为空、
+      # inputs 也没人填，两个条件都不成立，于是每次都静默跳过发布。
+      # 注意 inputs.* 在 push 事件下是空字符串，不能直接用，这里按事件分开判断。
       - name: 发布到 GitHub Release
-        if: github.ref_type == 'tag' || inputs.publishRelease
+        if: github.ref_type == 'tag' || github.event_name == 'push' || inputs.publishRelease == true
         uses: ncipollo/release-action@v1
         with:
           tag: ${{ github.ref_type == 'tag' && github.ref_name || format('apk-{0}-{1}', steps.ver.outputs.name, steps.ver.outputs.code) }}
