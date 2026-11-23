@@ -24,6 +24,14 @@ const ETAG_KEY = 'ck.remote.etag.index';
 const PROG_KEY = 'ck.update.progress';
 /** 半截下载后的自动重试间隔：不能只等每小时定期检查/网络事件（用户看到的就是"停了没下文"） */
 const RETRY_DELAY_MS = 60000;
+/** `serviceWorker.ready` 在没有活动注册时永远不 resolve（不是 reject），必须自己有超时 */
+const SW_READY_TIMEOUT_MS = 8000;
+/**
+ * 单次检查的硬上限：任何一步挂住（SW 消息不回、网络状态查询不返回…）都不许让
+ * state.checking 永久为 true —— 那等于把更新功能彻底锁死，只能重启 app。
+ * 下载本身有 5 分钟 deadline，这里留足余量。
+ */
+const CHECK_WATCHDOG_MS = 10 * 60 * 1000;
 
 function loadProgress() {
   try {
@@ -102,7 +110,15 @@ export function createUpdater(meta) {
   async function sw() {
     if (!hasSW()) return null;
     try {
-      const reg = await navigator.serviceWorker.ready;
+      // `serviceWorker.ready` 在没有活动注册时**永远不会 resolve**（不是 reject）。
+      // 以前这里直接 await：一旦 SW 注册失败（sw.js 404 / 安装期报错），
+      // check() 就永久挂住、state.checking 永远 true → 之后所有更新检查都返回 busy，
+      // 用户看到的就是"卡住之后再也不能更新"。加超时，拿不到就当没有 SW。
+      const reg = await Promise.race([
+        navigator.serviceWorker.ready,
+        new Promise((r) => setTimeout(() => r(null), SW_READY_TIMEOUT_MS)),
+      ]);
+      if (!reg) return null;
       return navigator.serviceWorker.controller || reg.active || null;
     } catch (e) { return null; }
   }
@@ -136,6 +152,16 @@ export function createUpdater(meta) {
     if (!force && !resumePending && Date.now() - state.lastCheckAt < intervalMs) return { status: 'throttled' };
 
     state.checking = true;
+    const checkStartedAt = Date.now();
+    let watchdog = null;
+    try {
+      watchdog = setTimeout(() => {
+        if (state.checking && Date.now() - checkStartedAt >= CHECK_WATCHDOG_MS) {
+          state.checking = false;
+          console.warn('[ck-update] 单次检查超过硬上限仍未结束，强制解锁（避免更新功能被永久锁死）');
+        }
+      }, CHECK_WATCHDOG_MS + 1000);
+    } catch (e) { /* noop */ }
     emit('checking');
     try {
       const net = await Network.getStatus().catch(() => ({ connected: true }));
@@ -257,7 +283,22 @@ export function createUpdater(meta) {
       }
       try { note?.close?.(); } catch (e) { /* noop */ }
 
-      const complete = !!result && result.ok === result.total && (result.total > 0 || doneOffset > 0);
+      // 判定"下完了"：成功的 + 源上已不存在的 = 全部。missing 是**永久性**的
+      // （全源 404/410），不这样算的话，站点删掉一个文件就能让指纹永远写不进去。
+      const settledAll = !!result && (result.ok + (result.missing || 0) === result.total);
+      // 兜底：一个都真没下到（整站 404 / 源配错）不能算成功，否则会把空内容
+      // 当成"已是最新"写进指纹，之后再也不更新。
+      const gotSomething = !!result && (result.total > 0 ? result.ok > 0 : doneOffset > 0);
+      const complete = settledAll && gotSomething;
+
+      // 源上已经不存在的文件（站点改名/删除，而 allPaths 是构建时烘死的）：
+      // 不管这次是不是全部下完，都先记进已下载清单 —— 否则每轮重试都会重新去
+      // 打这批 404 地址，永远卡在同一格（"更一半自动停了"就是这么来的）。
+      for (const m of result?.missingPaths || []) markDone(m);
+      if (result?.missingPaths?.length) {
+        console.info('[ck-update] 源上已不存在的文件（已跳过）', result.missingPaths);
+      }
+
       if (!complete) {
         // 只下了一半：进度已落盘（下次检查/重进 app 从断点继续，不从头下），
         // 指纹保持旧值；并安排一次自动重试 —— 不能只等每小时定期检查，
@@ -272,6 +313,11 @@ export function createUpdater(meta) {
       clearProgress();
       try { localStorage.setItem(ETAG_KEY, tag); } catch (e) { /* noop */ }
       emit('downloaded', { tag });
+      // 内容已经落地、指纹已经写好，更新这件事到此结束。下面只是问用户要不要刷新：
+      // 等他点按钮的这段时间**不能再算"正在检查"** —— 以前 check() 一直 await 这个框，
+      // 用户不点（或框没弹出来）state.checking 就永远 true，之后所有检查全部 busy，
+      // 表现就是"更新功能从此没有任何反应，只能重启 app"。
+      state.checking = false;
       const doRefresh = await CkUI.confirm({
         title: '更新已下载完成',
         message: '新版内容已经下载到本地，刷新页面就能看到。现在刷新吗？',
@@ -288,6 +334,7 @@ export function createUpdater(meta) {
       if (!silent) CkUI.toast(`检查更新失败：${String(err?.message || err)}`, { type: 'error' });
       return { status: 'error', error: err };
     } finally {
+      if (watchdog) { try { clearTimeout(watchdog); } catch (e) { /* noop */ } }
       state.checking = false;
     }
   }

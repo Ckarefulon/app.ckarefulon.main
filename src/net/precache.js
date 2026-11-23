@@ -34,7 +34,11 @@ function xhrGet(url, wantText, timeoutMs = 15000) {
       xhr.responseType = wantText ? 'text' : 'blob';
       xhr.onload = () => {
         if (xhr.status >= 200 && xhr.status < 300 && xhr.response != null) resolve(xhr.response);
-        else reject(new Error(`xhr:${xhr.status}`));
+        else {
+          const err = new Error(`xhr:${xhr.status}`);
+          err.status = xhr.status; // 让上层能区分"源上没有这个文件"和"这次没下成功"
+          reject(err);
+        }
       };
       xhr.onerror = () => reject(new Error('xhr:error'));
       xhr.ontimeout = () => reject(new Error('xhr:timeout'));
@@ -66,8 +70,22 @@ export function normalizeNativeBody(data, wantText, ct) {
   return base64ToBlob(data, ct);
 }
 
+/**
+ * 「源上已经不存在」：三条传输通道都拿到了 HTTP 状态码，而且全是 404/410。
+ * 这类失败是**永久性**的（站点把文件改名/删了），和"这次网络不好"必须分开：
+ * 混在一起会让整站永远差一个文件 → 更新永远不算下完 → 用户看到的就是
+ * "卡在 N/M 再也不动、每次重试都卡在同一个位置"。
+ */
+class MissingError extends Error {
+  constructor(tries) { super(tries.join('/') || 'missing'); this.missing = true; }
+}
+const MISSING_STATUS = new Set([404, 410]);
+
 async function download(url, wantText) {
   const tries = [];
+  let sawStatus = false;   // 至少有一条通道真的拿到过 HTTP 状态码
+  let allMissing = true;   // 拿到状态的那些，全都是 404/410
+  const noteStatus = (status) => { sawStatus = true; if (!MISSING_STATUS.has(status)) allMissing = false; };
   if (Capacitor.isNativePlatform()) {
     try {
       const r = await CapacitorHttp.get({
@@ -83,18 +101,31 @@ async function download(url, wantText) {
         return { body: normalizeNativeBody(r.data, wantText, ct), ct };
       }
       tries.push(`native:${r.status}`);
-    } catch (e) { tries.push(`native:${msg(e)}`); }
+      noteStatus(r.status);
+    } catch (e) {
+      // 没有状态码 = 通道本身没走通（超时/断网/该通道不可用）。它既不能证明文件存在，
+      // 也不能证明文件不存在 —— 不参与判定，交给别的通道说话。
+      tries.push(`native:${msg(e)}`);
+      if (e?.status) noteStatus(e.status);
+    }
   }
   try {
     const r = await fetch(url, { mode: 'cors', credentials: 'omit', cache: 'no-store', signal: AbortSignal.timeout(10000) });
     if (r.ok) return { body: wantText ? await r.text() : await r.blob(), ct: r.headers.get('content-type') || '' };
     tries.push(`fetch:${r.status}`);
-  } catch (e) { tries.push(`fetch:${msg(e)}`); }
+    noteStatus(r.status);
+  } catch (e) {
+    tries.push(`fetch:${msg(e)}`);
+    if (e?.status) noteStatus(e.status);
+  }
   try {
     const body = await xhrGet(url, wantText, 10000);
     return { body, ct: '' };
-  } catch (e) { tries.push(msg(e)); }
-  throw new Error(tries.join('/') || 'unknown');
+  } catch (e) {
+    tries.push(msg(e));
+    if (e?.status) noteStatus(e.status);
+  }
+  throw (sawStatus && allMissing) ? new MissingError(tries) : new Error(tries.join('/') || 'unknown');
 }
 
 function confirmPut(worker, payload, key, timeoutMs = 6000) {
@@ -119,7 +150,9 @@ function confirmPut(worker, payload, key, timeoutMs = 6000) {
  *   · onPathDone(key)：每个文件成功入缓存后立刻回调（站点路径 / vendor 完整 URL），
  *     更新器靠它把"已下载清单"落盘 —— 下载被打断（切页/退出/超时）后能续传，
  *     而不是整站从头重下
- * @returns {Promise<{ok:number,total:number,errors:string[],okPaths:string[]}>}
+ * @returns {Promise<{ok:number,total:number,missing:number,missingPaths:string[],errors:string[],okPaths:string[]}>}
+ *   · missing：源上已经不存在（全源 404/410）的文件数。判定"下完"时必须算上它，
+ *     否则站点删掉一个文件就能让更新永远差最后一格、指纹永不写入。
  */
 export async function precacheCore(swMeta, opts = {}) {
   const worker = opts.worker !== undefined ? opts.worker : (navigator.serviceWorker?.controller || null);
@@ -130,6 +163,7 @@ export async function precacheCore(swMeta, opts = {}) {
     : (Array.isArray(opts.vendor) ? opts.vendor : (swMeta?.vendor || []));
   const errors = [];
   const okPaths = [];
+  const missingPaths = [];
   const total = paths.length + vendor.length;
   // 当前环境受不受 CORS 约束？
   //   原生（Android WebView）：CapacitorHttp 走原生栈，不受限
@@ -144,6 +178,8 @@ export async function precacheCore(swMeta, opts = {}) {
     ...paths.map((p) => async () => {
       const wantText = wantsText(p);
       const isHtml = HTML_RE.test(p);
+      let tried = 0;
+      let allMissing = true; // 每个真正试过的源都"明确说没有这个文件"
       for (const o of origins) {
         // 没有 ACAO 头的源（Gitee raw 就是）在受 CORS 约束的环境里必然被拦，
         // 跳过可以省下每文件两轮超时——sw.js 里是同一套规则。
@@ -152,15 +188,21 @@ export async function precacheCore(swMeta, opts = {}) {
         // 不然 HTML 全靠它就永远下不到，还会把 raw 打到限流
         if (o.html === false && isHtml) continue;
         const url = `${o.base}${p}`;
+        tried++;
         try {
           const { body, ct } = await download(url, wantText);
           const putOk = await confirmPut(worker, { pathname: p, body, contentType: usableCt(ct) ? ct : mimeFor(p) }, p);
           if (putOk) { okPaths.push(p); if (typeof opts.onPathDone === 'function') opts.onPathDone(p); return true; }
           errors.push(`${p}:put-failed`);
+          allMissing = false; // 下到了、只是入缓存没确认：临时问题，不是文件不存在
         } catch (e) {
           errors.push(`${p}:${msg(e)}`);
+          if (!e?.missing) allMissing = false;
         }
       }
+      // 所有可用源都明确 404/410 → 这个文件在源上已经不存在（典型：站点改名/删除了它，
+      // 而 allPaths 是 APK 构建时烘死的清单）。把它单独报出来，别让它永远卡着整站更新。
+      if (tried > 0 && allMissing) { missingPaths.push(p); return 'missing'; }
       return false;
     }),
     ...vendor.map((v) => async () => {
@@ -168,6 +210,7 @@ export async function precacheCore(swMeta, opts = {}) {
       // 这样页面里 <script src="https://cdn..."> 的请求才能被 SW 拦到。
       const key = v.url;
       const wantText = wantsText(new URL(key).pathname);
+      let allMissing = true;
       for (const url of [key, v.mirror].filter(Boolean)) {
         try {
           const { body, ct } = await download(url, wantText);
@@ -181,10 +224,13 @@ export async function precacheCore(swMeta, opts = {}) {
           }, key);
           if (putOk) { okPaths.push(key); if (typeof opts.onPathDone === 'function') opts.onPathDone(key); return true; }
           errors.push(`vendor:put-failed`);
+          allMissing = false;
         } catch (e) {
           errors.push(`vendor:${msg(e)}`);
+          if (!e?.missing) allMissing = false;
         }
       }
+      if (allMissing) { missingPaths.push(key); return 'missing'; }
       return false;
     }),
   ];
@@ -193,11 +239,16 @@ export async function precacheCore(swMeta, opts = {}) {
   const concurrency = Math.max(1, opts.concurrency ?? 6);
   let cursor = 0;
   let settledOk = 0;
+  let settledMissing = 0;
+  let aborted = false;
   const workers = Array.from({ length: Math.min(concurrency, jobs.length) }, async () => {
     while (cursor < jobs.length) {
+      if (aborted) return; // deadline 到点后别再继续抓：否则会和下一轮重试同时下同一批文件
       const job = jobs[cursor++];
       try {
-        if (await job()) settledOk++;
+        const r = await job();
+        if (r === true) settledOk++;
+        else if (r === 'missing') settledMissing++;
       } catch (e) { /* noop */ }
       if (typeof opts.onProgress === 'function') opts.onProgress(settledOk, total);
     }
@@ -208,9 +259,19 @@ export async function precacheCore(swMeta, opts = {}) {
     Promise.all(workers).then(() => true),
     new Promise((r) => setTimeout(() => r(false), deadline)),
   ]);
-  if (!finished) errors.push(`deadline:${deadline}ms`);
+  if (!finished) { aborted = true; errors.push(`deadline:${deadline}ms`); }
   if (typeof opts.onProgress === 'function') opts.onProgress(settledOk, total);
-  return { ok: settledOk, total, errors: errors.slice(0, 6), okPaths, partial: !finished };
+  // missing = 源上已经不存在的文件数。调用方必须把它算进"下完"，
+  // 否则一个被删掉的文件就能让整站更新永远停在最后一格。
+  return {
+    ok: settledOk,
+    total,
+    missing: settledMissing,
+    missingPaths,
+    errors: errors.slice(0, 6),
+    okPaths,
+    partial: !finished,
+  };
 }
 
 /**

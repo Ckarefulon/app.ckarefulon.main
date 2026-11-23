@@ -498,6 +498,76 @@ if (!MIRROR) {
   delete globalThis.window;
 }
 
+// 2.4 「源上已经不存在」必须和「这次没下成功」分开
+//     站点把一个文件改名/删掉后，APK 里烘死的 allPaths 仍含旧路径；以前这类 404
+//     被当成"没下完"，于是整站更新永远差一格、指纹永不写入 —— 用户看到的就是
+//     "更新卡在某个位置，X 再也不增长"。这条语义钉死在这儿。
+{
+  const notFound = () => new Response('not found', { status: 404, headers: { 'Content-Type': 'text/plain' } });
+  // Node 里没有真 XHR：按给定状态码模拟（真机上 XHR 也会带 404 状态回来）
+  const stubXhr = (status) => class {
+    open() {}
+    send() { setTimeout(() => { this.status = status; this.response = null; this.onload(); }, 0); }
+  };
+  const meta404 = {
+    origins: [
+      { name: 'A', base: 'https://a.example/raw', cors: false },
+      { name: 'B', base: 'https://b.example/raw', cors: false },
+    ],
+    core: ['/gone.js'],
+    vendor: [],
+  };
+
+  globalThis.XMLHttpRequest = stubXhr(404);
+  netCalls.length = 0;
+  globalThis.fetch = async (url) => { netCalls.push(url); return notFound(); };
+  const rMissing = await precacheCore(meta404, { worker, concurrency: 1 });
+  check('全源 404 的文件报成 missing（不算 ok）',
+    rMissing.ok === 0 && rMissing.missing === 1,
+    JSON.stringify({ ok: rMissing.ok, missing: rMissing.missing, total: rMissing.total }));
+  check('404 的文件被列进 missingPaths', rMissing.missingPaths.includes('/gone.js'), JSON.stringify(rMissing.missingPaths));
+  check('404 时所有源都试过（不是试第一个就认输）',
+    meta404.origins.every((o) => netCalls.some((u) => u.startsWith(o.base))), netCalls.join(' | '));
+
+  // 网络异常/超时是临时失败 —— 绝不能当成"文件不存在"，否则会永久跳过一个真文件
+  const deadXhr = () => class { open() {} send() { setTimeout(() => this.onerror(), 0); } };
+  globalThis.XMLHttpRequest = deadXhr();
+  globalThis.fetch = async () => { throw new Error('net-blocked'); };
+  const rTransient = await precacheCore(meta404, { worker, concurrency: 1 });
+  check('网络异常不算 missing（临时失败要留给重试）',
+    rTransient.missing === 0 && rTransient.ok === 0,
+    JSON.stringify({ ok: rTransient.ok, missing: rTransient.missing }));
+
+  // 403（限流/被墙）/5xx 同理：源是活的，只是这次不给
+  globalThis.XMLHttpRequest = stubXhr(403);
+  globalThis.fetch = async () => new Response('forbidden', { status: 403 });
+  const r403 = await precacheCore(meta404, { worker, concurrency: 1 });
+  check('403 不算 missing', r403.missing === 0, String(r403.missing));
+
+  // vendor 全源 404 也算 missing，否则一个失效的 CDN 依赖同样能卡死整站更新
+  globalThis.XMLHttpRequest = stubXhr(404);
+  globalThis.fetch = async () => notFound();
+  const rVend = await precacheCore(
+    { origins: [], core: [], vendor: [{ url: 'https://cdn.example/x.js', mirror: 'https://m.example/x.js' }] },
+    { worker, concurrency: 1 },
+  );
+  check('vendor 全源 404 算 missing',
+    rVend.missing === 1 && rVend.ok === 0,
+    JSON.stringify({ ok: rVend.ok, missing: rVend.missing }));
+
+  // 混合场景：ok + missing 合起来等于 total —— 更新器靠这个判定"下完了"
+  globalThis.fetch = async (url) => (
+    url.endsWith('/ok.js') ? new Response('x', { headers: { 'Content-Type': 'application/javascript' } }) : notFound()
+  );
+  const rMix = await precacheCore(
+    { origins: [{ name: 'A', base: 'https://a.example/raw', cors: false }], core: ['/gone.js', '/ok.js'], vendor: [] },
+    { worker, concurrency: 1 },
+  );
+  check('ok + missing 恰好等于 total（一个被删的文件不该阻塞整站更新）',
+    rMix.total === 2 && rMix.ok + rMix.missing === rMix.total,
+    JSON.stringify({ ok: rMix.ok, missing: rMix.missing, total: rMix.total }));
+}
+
 globalThis.fetch = origFetch;
 
 /* ===================== 3) 原生传输通道的返回值还原 ===================== */
