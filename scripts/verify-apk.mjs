@@ -70,11 +70,19 @@ if (!/Signer #1 certificate DN:/i.test(signOut)) {
   console.log(String(signOut).split('\n').slice(0, 25).map((l) => `      | ${l}`).join('\n'));
 }
 const signer = {
-  verified: /Verified using v(\d)/.test(signOut) || /DOES NOT VERIFY/i.test(signOut) === false,
+  // 以前写的是 /Verified using v(\d)/ —— 连 `Verified using v1 scheme: false` 也匹配，
+  // 于是"有没有验过"永远为真，签名坏了也报通过。改成"至少有一种方案 == true"。
+  verified: /Verified using v\d+(?:\.\d+)? scheme[^:]*:\s*true/i.test(signOut),
   schemes: [...signOut.matchAll(/Verified using v(\d) scheme \(([^)]+)\):\s*(true|false)/g)]
     .filter((m) => m[3] === 'true').map((m) => `v${m[1]}`),
-  cn: (signOut.match(/Signer #1 certificate DN:\s*(.+)/) || [])[1]?.trim() || null,
-  sha256: (signOut.match(/Signer #1 certificate SHA-256 digest:\s*([0-9a-f]+)/) || [])[1] || null,
+  // apksigner 的两种输出格式都要认：
+  //   本地 build-tools 36：`Signer #1 certificate DN: ...`
+  //   CI 上更新版（够到 v3.2 那个）：`V3.0 Signer: certificate DN: ...`
+  // 只认前者的话，CI 上永远拿不到签名者，报一条假的"签名者不是 Ckarefulon"。
+  //   本地：`Signer #1 certificate DN: ...`（#1 后面没有冒号）
+  //   CI  ：`V3.0 Signer: certificate DN: ...`（Signer 后面有冒号）
+  cn: (signOut.match(/(?:Signer #\d+\s*:?|V\d+(?:\.\d+)? Signer:)\s*certificate DN:\s*(.+)/i) || [])[1]?.trim() || null,
+  sha256: (signOut.match(/(?:Signer #\d+\s*:?|V\d+(?:\.\d+)? Signer:)\s*certificate SHA-256 digest:\s*([0-9a-f]+)/i) || [])[1] || null,
 };
 
 /* ------------------------------ 清单信息 ------------------------------ */
