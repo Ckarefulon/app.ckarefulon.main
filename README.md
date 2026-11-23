@@ -97,7 +97,7 @@ cd app.ckarefulon.main
 
 两条路线，都不需要本地装 JDK / Android SDK，产物都能直接下载 —— 详见 **`docs/Codespaces云端构建.md`**：
 
-- **GitHub Actions**（`.github/workflows/android-apk.yml`）：**Actions → Build Android APK → Run workflow**（或打 `v*` tag 自动触发），构建签名 APK 并发到 Release，在 Release 附件里直接下载。
+- **GitHub Actions**（`.github/workflows/android-apk.yml`）：**每次 push 到 main 自动出包并发 Release**（只有 `src/ shell/ assets/ android/ scripts/` 与配置文件变化才触发，纯文档改动不出包），也可以 **Actions → Build Android APK → Run workflow** 手动跑、或打 `v*` tag。versionCode 在 push 触发时自动 +1，Release 形如 `Ckarefulon 1.0.1 (133)`，附件里直接下 APK。
   在仓库 Secrets 里配置 `CK_KEYSTORE_B64`（keystore 的 base64）、`CK_KEYSTORE_PASSWORD`、`CK_KEY_PASSWORD`（见 `docs/签名与发布.md`）。没配也能跑，但产物是临时签名，仅测试用。
 - **Codespaces + prebuild**（`.devcontainer/`）：秒开一个装好 JDK 21 + Android SDK 的云端开发环境，跑 `npm run build` 后在文件树里右键 APK → Download。
   签名私钥用 **Codespaces 个人密钥**恢复（**不要用仓库级密钥** —— 本仓库是公开仓库，仓库级密钥对任何能开 Codespace 的人可见）。
