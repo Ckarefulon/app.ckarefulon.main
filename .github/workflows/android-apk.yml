@@ -33,6 +33,8 @@ on:
       - 'app.config.json'
       - 'capacitor.config.json'
       - 'package.json'
+      # 工作流自身的改动也要跑一次，否则改坏了没人知道
+      - '.github/workflows/android-apk.yml'
   workflow_dispatch:
     inputs:
       versionName:
