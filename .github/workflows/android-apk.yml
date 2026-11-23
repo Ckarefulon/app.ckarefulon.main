@@ -82,8 +82,11 @@ jobs:
           distribution: temurin
           java-version: 21
 
+      # v3 内部会 `sdkmanager tools`，而 Google 已经不再发布 tools 包，
+      # 于是 setup 步骤直接挂：Failed to find package 'tools'（2026-11 实测）。
+      # v4 把 tools 从默认 packages 里去掉了，其余内容都在 cmdline-tools 里。
       - name: Android SDK
-        uses: android-actions/setup-android@v3
+        uses: android-actions/setup-android@v4
 
       # 与 android/variables.gradle 对齐；显式装，避免依赖 Gradle 的自动补装
       - name: 安装 Android SDK 组件
