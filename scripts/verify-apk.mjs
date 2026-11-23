@@ -63,6 +63,12 @@ try {
   }
   log.warn(`apksigner 退出码非 0，仍按输出解析：${stderr.split('\n')[0].slice(0, 120)}`);
 }
+if (!/Signer #1 certificate DN:/i.test(signOut)) {
+  // 解析不出签名者是"脚本读不懂 apksigner 的输出"，不是"包有问题"。
+  // 把原始输出打出来（控制台会自动对 secret 打码，不影响这里的诊断价值）。
+  log.warn(`apksigner 输出里没有 Signer #1 certificate DN，原始输出（前 25 行）：`);
+  console.log(String(signOut).split('\n').slice(0, 25).map((l) => `      | ${l}`).join('\n'));
+}
 const signer = {
   verified: /Verified using v(\d)/.test(signOut) || /DOES NOT VERIFY/i.test(signOut) === false,
   schemes: [...signOut.matchAll(/Verified using v(\d) scheme \(([^)]+)\):\s*(true|false)/g)]
