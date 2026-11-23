@@ -21,6 +21,18 @@ name: Build Android APK
 on:
   push:
     tags: ['v*']
+    # 每次 push 到 main 都自动出一个 Release（用户要求「每次完成后发个 release」）。
+    # 只动 docs/tests 时没必要出包，所以先按路径过滤；仍然可以手动触发强制出包。
+    branches: [main]
+    paths:
+      - 'src/**'
+      - 'shell/**'
+      - 'assets/**'
+      - 'android/**'
+      - 'scripts/**'
+      - 'app.config.json'
+      - 'capacitor.config.json'
+      - 'package.json'
   workflow_dispatch:
     inputs:
       versionName:
@@ -33,6 +45,10 @@ on:
         default: ''
       publishRelease:
         description: '是否发布到 GitHub Release'
+        type: boolean
+        default: true
+      bumpVersion:
+        description: 'push 触发时是否自增 versionCode（默认是；1.0.1 这种手填名字时留空即可）'
         type: boolean
         default: true
 
@@ -106,14 +122,34 @@ jobs:
             echo "::warning::未配置 CK_KEYSTORE_B64，release 包将回退 debug 签名（仅测试用）"
           fi
 
+      # push 触发的自动出包：versionCode 自增（1.0.1+133、+134…），
+      # 这样每次 Release 都是可覆盖升级的新版本号，不会出现"同一个 code 装不上去"。
+      # tag 触发或显式传了 inputs 时以传入值为准。
+      - name: 计算版本号
+        id: ver
+        run: |
+          NAME="${{ inputs.versionName }}"
+          CODE="${{ inputs.versionCode }}"
+          if [ -z "$CODE" ]; then
+            if [ "${{ github.ref_type }}" = "tag" ]; then
+              CODE="$(node -p "require('./app.config.json').versionCode")"
+            else
+              CODE="$(( $(node -p "require('./app.config.json').versionCode") + 1 ))"
+            fi
+          fi
+          if [ -z "$NAME" ]; then NAME="$(node -p "require('./app.config.json').versionName")"; fi
+          echo "name=$NAME" >> "$GITHUB_OUTPUT"
+          echo "code=$CODE" >> "$GITHUB_OUTPUT"
+          echo "本次构建：$NAME / $CODE"
+
       - name: 同步壳 + 定制 Android 工程
         run: npm run android:sync && npm run android:patch
 
       # npm run apk 内部依次跑 utest → ptest → smoke → e2e → gradle，任一失败即阻断出包
       - name: 构建 APK（含全部质量闸门）
         env:
-          CK_VERSION_NAME: ${{ inputs.versionName }}
-          CK_VERSION_CODE: ${{ inputs.versionCode }}
+          CK_VERSION_NAME: ${{ steps.ver.outputs.name }}
+          CK_VERSION_CODE: ${{ steps.ver.outputs.code }}
           CHROME_BIN: ${{ steps.chrome.outputs.chrome-path }}
         run: npm run apk
 
@@ -134,11 +170,15 @@ jobs:
         if: github.ref_type == 'tag' || inputs.publishRelease
         uses: ncipollo/release-action@v1
         with:
-          tag: ${{ github.ref_type == 'tag' && github.ref_name || format('apk-{0}', github.run_id) }}
-          name: 'Ckarefulon APK ${{ github.ref_name }}'
+          tag: ${{ github.ref_type == 'tag' && github.ref_name || format('apk-{0}-{1}', steps.ver.outputs.name, steps.ver.outputs.code) }}
+          name: 'Ckarefulon ${{ steps.ver.outputs.name }} (${{ steps.ver.outputs.code }})'
           artifacts: 'dist/*.apk'
           body: |
-            安卓壳安装包（签名：Ckarefulon）。
-            站点内容通过 OTA 自动更新，此 APK 仅在原生层变化时才需要重新安装。
+            安卓壳安装包（签名：Ckarefulon，versionCode ${{ steps.ver.outputs.code }}）。
+
+            站点内容通过 OTA 自动更新，此 APK 仅在原生层（壳 JS / 插件 / 权限 / 图标）变化时
+            才需要重新安装。签名未变（132 起为 4b164aa5…），可直接覆盖升级。
+
+            构建提交：`${{ github.sha }}`
           allowUpdates: true
           prerelease: false
