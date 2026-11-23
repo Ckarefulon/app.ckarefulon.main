@@ -58,8 +58,8 @@
       "ok": true
     },
     {
-      "name": "versionCode = 132",
-      "ok": true
+      "name": "versionCode = 133",
+      "ok": false
     },
     {
       "name": "应用名 = Ckarefulon",
@@ -110,5 +110,5 @@
     "config": true,
     "staleFiles": []
   },
-  "verifiedAt": "2026-11-20T09:28:51.001Z"
+  "verifiedAt": "2026-11-23T02:59:38.501Z"
 }

@@ -52,7 +52,16 @@ let signOut = '';
 try {
   signOut = run(apksigner, ['verify', '--print-certs', '--verbose', apk]);
 } catch (e) {
-  log.die(`签名校验失败：${String(e.stderr || e.message).split('\n').slice(0, 5).join(' | ')}`);
+  const stderr = String(e.stderr || e.message);
+  // apksigner 用**非 0 退出码**表示"验签不通过"，但它照样会正常打印
+  // `Verifies` / certificate DN / SHA-256。以前一出非 0 就直接 die，
+  // 于是"签名到底是谁"永远拿不到，排查时只剩一句"签名者为 null"。
+  // 这里改成：拿到输出就继续解析，让后面的断言自己报具体哪项不对。
+  signOut = String(e.stdout || '');
+  if (!signOut.trim()) {
+    log.die(`签名校验失败（apksigner 无输出）：${stderr.split('\n').slice(0, 5).join(' | ')}`);
+  }
+  log.warn(`apksigner 退出码非 0，仍按输出解析：${stderr.split('\n')[0].slice(0, 120)}`);
 }
 const signer = {
   verified: /Verified using v(\d)/.test(signOut) || /DOES NOT VERIFY/i.test(signOut) === false,

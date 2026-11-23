@@ -159,6 +159,12 @@ jobs:
         run: npm run apk
 
       - name: 校验 APK
+        # 必须带上同一份版本号：verify 会把 APK 里的 versionCode 和配置比，
+        # 不带的话它拿 app.config.json 的旧值（132）去比构建出来的新值（133），
+        # 报一条假的"versionCode 不匹配"。
+        env:
+          CK_VERSION_NAME: ${{ steps.ver.outputs.name }}
+          CK_VERSION_CODE: ${{ steps.ver.outputs.code }}
         run: npm run verify
 
       - name: 上传产物
