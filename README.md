@@ -93,6 +93,25 @@ cd app.ckarefulon.main
 ./build.sh          # 或 ./build.sh all
 ```
 
+### 3.2.1 在 Codespace 里出包：**用本地命令，不要绕 Actions**
+
+`.devcontainer/` 已经把 JDK 21 + Android SDK 36 + Chrome + Gradle 缓存装好了，
+`keys/Ckarefulon.keystore` 也在仓库里 —— **在这个环境里 `npm run apk` 就是全流程**：
+
+```bash
+npm run android:sync && npm run android:patch
+CHROME_BIN=$(ls ~/.cache/puppeteer/chrome/*/chrome-linux64/chrome | head -1) npm run apk
+```
+
+实测（2026-11，4 核 / Gradle 缓存已热）：**一次 75 秒**（utest + ptest + smoke + e2e + gradle 全部跑完）。
+
+对比 GitHub Actions：排队 + checkout + 装 SDK + 装 Chrome + `npm ci` + 构建，一轮约 **5 分钟**，
+而且 CI 有本地没有的环境差异（`setup-android@v3` 会去装谷歌已下线的 `tools` 包、apksigner
+版本不同导致输出格式不同），改一行要等 5 分钟才能看到结果。
+
+> **所以：改壳代码 → 本地 `npm run apk` 验证 → 通过后再 push。**
+> Actions 的用途是「push 之后自动留一份可下载的 Release」，不是开发期的构建机。
+
 ### 3.3 不装任何环境：云端构建
 
 两条路线，都不需要本地装 JDK / Android SDK，产物都能直接下载 —— 详见 **`docs/Codespaces云端构建.md`**：
