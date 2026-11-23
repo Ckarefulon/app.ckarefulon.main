@@ -136,5 +136,23 @@ npm run ota:publish -- --push          # 复制到站点仓库 app-ota/，提交
   避免 `state.checking` 被永久锁死（锁死 = 更新功能从此没有任何反应）；
 - 兜底：`ok === 0 && total > 0`（整站 404 / 源配错）仍判失败，绝不把空内容写成"已是最新"。
 
+### 6.2 清单不再烘死：运行时读仓库 tree
+
+`allPaths` 只在**构建 APK 时**生成一次，装机后不再变，于是站点新增/改名/删文件都会让老 APK 失误：
+删了 → 老路径永远 404（上一节）；**新增 → 更新根本不会下**；旧版还有 `slice(0,500)` 的静默截断。
+
+现在更新时的"要下哪些文件"以**运行时**清单为准（`src/update/filelist.js`）：
+
+| 环节 | 做法 |
+| --- | --- |
+| 有没有更新 | `index.html` 的 ETag/Last-Modified/正文哈希，**一个请求** |
+| 有更新 → 要下哪些 | 拉仓库 tree 接口（Gitee API → jsDelivr data → GitHub，逐个兜底） |
+| 慢不慢 | 结果缓存进 `localStorage.ck.remote.filelist`，TTL 10 分钟；**没更新时一个额外请求都不发** |
+| 接口全挂 | 退回构建时烘死的那份 `allPaths`，行为与从前一致 |
+| 路径被删 | 跟基线 diff 出"消失的路径" → SW `ck-cache-drop` 把死数据从 CacheStorage 删掉 |
+
+实测（2026-11-23）：三个源均可用，Gitee 880ms / jsDelivr 373ms / GitHub 324ms，都是 352 个文件里
+筛出 263 个运行时文件。构建时的 `slice(0,500)` 已删除。
+
 **给已经卡住的老版本止血**：把被删的那个文件按原路径补回站点仓库（留一个转发 stub 即可），
 老 APK 下一次检查就是 264/264，能正常更新；根治要出下一个 APK。

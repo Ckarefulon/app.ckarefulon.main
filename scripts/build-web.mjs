@@ -133,7 +133,9 @@ async function fetchAllPaths(cfg) {
         .filter((p) => RUNTIME_EXT.test(p));
       if (list.length) {
         log.info(`全站清单（${s.name}）：${list.length} 个运行时文件`);
-        return list.slice(0, 500);
+        // 以前是 slice(0,500)：站点文件超过 500 个后，尾巴上的文件被静默丢弃，
+        // 连"没下到"都看不出来。清单本身就是几 KB 的字符串数组，没必要截断。
+        return list;
       }
     } catch (e) {
       log.warn(`全站清单获取失败（${s.name}）：${String(e?.message || e).slice(0, 60)}`);
@@ -165,7 +167,16 @@ const SW_META = {
     '/assets/services/core/site-scope.js',
     '/favicon.svg',
   ],
+  // 构建时烘死的全站清单：现在**只是兜底**（离线首装 / 运行时清单源全挂时用）。
+  // 更新下载不再以它为准 —— 运行时从仓库 tree 接口取真实清单（src/update/filelist.js），
+  // 否则站点一新增/改名/删文件，装机用户就瞎了（2026-11 踩过：删一个文件卡死所有更新）。
   allPaths: ALL_PATHS,
+  // 运行时清单源要用的仓库坐标（Gitee = repo，jsDelivr/GitHub = repoFallback）
+  site: {
+    repo: cfg.site.repo || '',
+    repoFallback: cfg.site.repoFallback || '',
+    branch: cfg.site.branch || 'main',
+  },
   // 每条 CDN 依赖带上国内镜像地址：直连不通时运行时要靠它兜底。
   // 没有它，国内机器上 vendor 必然下载失败——首屏能开，但页面里的库全是死的。
   // ct 一并算好：有的依赖路径没有扩展名（/npm/pkg/+esm），运行时按路径猜 MIME

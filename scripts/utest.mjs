@@ -568,6 +568,66 @@ if (!MIRROR) {
     JSON.stringify({ ok: rMix.ok, missing: rMix.missing, total: rMix.total }));
 }
 
+// 2.5 运行时站点清单：路径一变就得跟上，而且不能拖慢检查
+//     以前 allPaths 是构建时烘死的，站点增删改名后老 APK 就瞎了。这里钉住三件事：
+//     过滤规则和构建时一致、TTL 内不重复请求、源链能兜底。
+{
+  const { normalizeFileList, readCachedFileList, writeCachedFileList, clearCachedFileList, fileListSources } = await import(
+    new URL('../src/update/filelist.js', import.meta.url).href
+  );
+  const store = new Map();
+  globalThis.localStorage = {
+    getItem: (k) => (store.has(k) ? store.get(k) : null),
+    setItem: (k, v) => store.set(k, String(v)),
+    removeItem: (k) => store.delete(k),
+  };
+
+  const norm = normalizeFileList([
+    'index.html',
+    '/Cube/Analyzer/index.html',
+    '/Cube/assets/bluetooth/smartcube-bridge.js',
+    '.github/workflows/x.yml',      // 点号目录 → 丢
+    '/.http/certificate.json',      // 点号目录 → 丢
+    'README.md',                    // 运行时用不到 → 丢
+    'nav/nav.js',
+  ]);
+  check('清单归一：补前导斜杠', norm.includes('/index.html'), JSON.stringify(norm));
+  check('清单归一：点号目录被排除',
+    !norm.some((p) => p.split('/').some((seg) => seg.startsWith('.'))), JSON.stringify(norm));
+  check('清单归一：只留运行时类型', !norm.includes('/README.md'), JSON.stringify(norm));
+  check('清单归一：深层路径保留', norm.includes('/Cube/assets/bluetooth/smartcube-bridge.js'), JSON.stringify(norm));
+
+  clearCachedFileList();
+  check('没有缓存时返回 null', readCachedFileList() === null);
+  writeCachedFileList('tag-a', ['/index.html'], 60_000);
+  const c1 = readCachedFileList();
+  check('写入后能读回', c1 && c1.tag === 'tag-a' && c1.paths[0] === '/index.html', JSON.stringify(c1));
+  check('TTL 内是 fresh', c1.fresh === true);
+  const c2 = readCachedFileList(Date.now() + 120_000);
+  check('过 TTL 后不再 fresh（要重新核实）', c2 && c2.fresh === false, JSON.stringify({ age: c2?.age }));
+  check('标签不匹配时调用方会重取（tag 随内容指纹走）', c2.tag !== 'tag-b');
+
+  // 源链：Gitee 优先（国内可达），jsDelivr/GitHub 兜底，且都带 pick
+  const srcs = fileListSources(
+    { repo: 'https://gitee.com/Ckarefulon/Ckarefulon.github.io.git', repoFallback: 'https://github.com/Ckarefulon/Ckarefulon.github.io.git' },
+    'main',
+  );
+  check('清单源链有 3 个源', srcs.length === 3, srcs.map((s) => s.name).join(','));
+  check('清单源链第一个是国内可达的 Gitee', srcs[0].name === 'Gitee' && srcs[0].url.includes('gitee.com/api'), srcs[0].url);
+  check('清单源链都带解析函数', srcs.every((s) => typeof s.pick === 'function'));
+  check('GitHub 源用 repoFallback 而不是 gitee 地址',
+    srcs.some((s) => s.name === 'GitHub' && s.url.includes('api.github.com/repos/Ckarefulon/')), JSON.stringify(srcs.map((s) => s.url)));
+
+  // 模拟各源返回：Gitee 挂了，jsDelivr 的嵌套结构也要能解析出来
+  const nested = { files: [{ type: 'directory', name: 'Cube', files: [{ type: 'file', name: 'index.html' }] }] };
+  check('jsDelivr 嵌套结构能展平', srcs[1].pick(nested).join(',') === 'Cube/index.html', JSON.stringify(srcs[1].pick(nested)));
+  check('Gitee/GitHub 的 tree 结构能解析',
+    srcs[0].pick({ tree: [{ type: 'blob', path: 'a.js' }, { type: 'tree', path: 'dir' }] }).join(',') === 'a.js');
+
+  clearCachedFileList();
+  delete globalThis.localStorage;
+}
+
 globalThis.fetch = origFetch;
 
 /* ===================== 3) 原生传输通道的返回值还原 ===================== */

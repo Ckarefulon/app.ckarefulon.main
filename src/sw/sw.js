@@ -506,6 +506,24 @@ self.addEventListener('message', (event) => {
     })());
   }
 
+  // 站点把这些路径删掉了/改名了：把缓存里的死数据一起删掉。
+  // 以前缓存只增不减 —— 站点删了页面，用户本地还留着、离线时还能翻到，
+  // 而且配额只会一直涨。
+  if (data.type === 'ck-cache-drop') {
+    event.waitUntil((async () => {
+      const cache = await caches.open(CACHE);
+      const paths = Array.isArray(data.paths) ? data.paths.slice(0, 500) : [];
+      let dropped = 0;
+      for (const p of paths) {
+        try {
+          const key = cacheKeyFor(new Request(self.location.origin + p));
+          if (await cache.match(key)) { await cache.delete(key); dropped++; }
+        } catch (e) { /* 单个失败不影响其余 */ }
+      }
+      reply({ type: 'ck-cache-drop-done', dropped, total: paths.length });
+    })());
+  }
+
   if (data.type === 'ck-claim') {
     event.waitUntil(self.clients.claim());
   }

@@ -13,6 +13,7 @@ import { Network } from '@capacitor/network';
 import { CkUI } from '../ui/ck-ui.js';
 import { nativeGet } from '../net/native-http.js';
 import { precacheCore } from '../net/precache.js';
+import { fetchFileList, fileListSources, readCachedFileList, writeCachedFileList } from './filelist.js';
 
 const ETAG_KEY = 'ck.remote.etag.index';
 /**
@@ -104,6 +105,51 @@ export function createUpdater(meta) {
       try { fn(event, data); } catch (e) { console.error('[ck-update] listener error', e); }
     }
   };
+
+  /**
+   * 取"当前站点真实有哪文件"。
+   *   · 缓存 TTL 内 → 直接用（连一个请求都不发）
+   *   · 过期 → 拉 tree 接口；tag 没变说明站点没动过，把缓存续期，省下重新解析
+   *   · 全失败 → 返回空 paths，调用方回退到构建时烘死的 allPaths
+   * 注意：只有"确认有更新"之后才会调到这里，没更新时零额外流量。
+   */
+  async function resolveSitePaths(tag) {
+    const cached = readCachedFileList();
+    if (cached && cached.fresh && cached.tag === tag) return { paths: cached.paths, source: 'cache' };
+    try {
+      const got = await fetchFileList(fileListSources(meta.site || {}, meta.site?.branch || 'main'));
+      if (got && got.paths.length) {
+        writeCachedFileList(tag, got.paths);
+        console.info(`[ck-update] 站点清单已更新：${got.paths.length} 个文件（源：${got.source}）`);
+        return { paths: got.paths, source: got.source };
+      }
+      // 接口全挂了：有旧缓存就用旧的（比烘死的那份新），否则交给调用方回退
+      if (cached && cached.paths?.length) return { paths: cached.paths, source: 'stale-cache' };
+      console.warn('[ck-update] 拿不到站点清单，回退到构建时的清单（新文件可能要等下次）');
+      return { paths: [], source: 'fallback' };
+    } catch (e) {
+      if (cached && cached.paths?.length) return { paths: cached.paths, source: 'stale-cache' };
+      return { paths: [], source: 'fallback' };
+    }
+  }
+
+  /** 上次清单里有、这次清单里没有的站点路径（vendor 是 CDN 地址，不参与） */
+  function diffGone(currentPaths) {
+    const prevList = readCachedFileList();
+    // 没有上一份清单可比时，用构建时烘死的那份当基线 —— 它正好代表了
+    // "装机时站点有哪些文件"，删掉的文件就是从这里多出来的那些。
+    const baseline = (prevList && prevList.paths?.length) ? prevList.paths : (meta.sw?.allPaths || []);
+    if (!baseline.length) return [];
+    const now = new Set(currentPaths);
+    return baseline.filter((p) => !now.has(p));
+  }
+
+  /** 让 SW 把已消失的文件从 CacheStorage 删掉（失败无所谓，只是缓存多留一会儿） */
+  function dropGone(worker, paths) {
+    try {
+      worker?.postMessage?.({ type: 'ck-cache-drop', paths });
+    } catch (e) { /* noop */ }
+  }
 
   const hasSW = () => typeof navigator !== 'undefined' && 'serviceWorker' in navigator;
 
@@ -227,9 +273,24 @@ export function createUpdater(meta) {
         return { status: 'updated', tag, deferred: true };
       }
 
-      // ---- 断点续传：只下"这个指纹还没下过"的文件 ----
-      const sitePaths = allPaths.length ? allPaths : (meta.sw?.core || []);
-      const vendorAll = allPaths.length ? (meta.sw?.vendor || []) : [];
+      // ---- 站点清单：以**运行时**拿到的真实清单为准 ----
+      // allPaths 是打 APK 时烘死的，站点一新增/改名/删文件它就不准了。
+      // 这里优先用 tree 接口的实时清单（有 TTL 缓存，没真更新时根本不会请求到这一步），
+      // 全失败才退回烘死的那份，保证离线/接口全挂时行为不变。
+      //
+      // 为什么不每次检查都拉：tree 接口是几 KB~一百多 KB 的额外请求，
+      // 而"有没有更新"用 index.html 的 ETag 一个请求就够了。只在确认有更新后
+      // 才去核实清单，没更新时零额外流量。
+      const listed = await resolveSitePaths(tag);
+      const sitePaths = listed.paths.length ? listed.paths : allPaths;
+      const vendorAll = sitePaths.length ? (meta.sw?.vendor || []) : [];
+      // 清单里已经没有的旧路径：内容已经从站点消失，缓存里的那份是死数据，
+      // 交给 SW 删掉（不删的话缓存只增不减，而且用户可能看到已下线的旧页面）
+      const gone = listed.paths.length ? diffGone(sitePaths) : [];
+      if (gone.length) {
+        console.info('[ck-update] 这些路径已从站点消失，清理本地缓存', gone.slice(0, 10).join(', '), gone.length > 10 ? `…共 ${gone.length} 个` : '');
+        void dropGone(worker, gone);
+      }
       let prog = loadProgress();
       if (!prog || prog.tag !== tag) prog = { tag, done: [] };
       const doneSet = new Set(prog.done);
